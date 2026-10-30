@@ -35,8 +35,8 @@ export function drawStrip(ctx, o) {
       ctx.fillText(String(n), (xa + xb) / 2, top - 14);
     }
     const ring = rings.get(n);
-    if (ring) drawRing(ctx, geo, ring.key, xa, xb, Y, top, H, c, pxRing, k);
-    else {
+    if (ring) drawRing(ctx, geo, ring.key, xa, xb, Y, top, H, c, pxRing, k, o.overlay);
+    else if (!o.overlay) {
       ctx.fillStyle = c.ghost;
       ctx.fillRect(xa, top, xb - xa, H);
       if (pxRing >= 8) {
@@ -77,7 +77,7 @@ function poly(ctx, pts) {
   ctx.closePath();
 }
 
-function drawRing(ctx, geo, key, xa, xb, Y, top, H, c, pxRing, k) {
+function drawRing(ctx, geo, key, xa, xb, Y, top, H, c, pxRing, k, overlay) {
   const b = geo.bounds(key);
   const O = geo.offsets;
   const n = geo.n;
@@ -96,11 +96,17 @@ function drawRing(ctx, geo, key, xa, xb, Y, top, H, c, pxRing, k) {
         [xa, Y(b[i] + O[i] + sh)], [xb, Y(b[i] - O[i] + sh)],
         [xb, Y(b[i + 1] - O[i + 1] + sh)], [xa, Y(b[i + 1] + O[i + 1] + sh)],
       ]);
-      ctx.fillStyle = i === 0 ? c.accent : i === 1 || i === n - 1 ? c.segB : c.seg;
-      ctx.fill();
+      if (overlay) {
+        // Gabarit sur la camera : seulement les joints, l'image reste visible.
+        ctx.strokeStyle = i === 0 ? c.accent : '#FFFFFF';
+        ctx.lineWidth = 2 * k;
+      } else {
+        ctx.fillStyle = i === 0 ? c.accent : i === 1 || i === n - 1 ? c.segB : c.seg;
+        ctx.fill();
+      }
       ctx.stroke();
       const ym = Y((b[i] + b[i + 1]) / 2 + sh);
-      if (pxRing >= 18) {
+      if (pxRing >= 18 && !overlay) {
         ctx.globalAlpha = 0.4;
         ctx.beginPath();
         ctx.moveTo(xa, ym);
@@ -111,7 +117,7 @@ function drawRing(ctx, geo, key, xa, xb, Y, top, H, c, pxRing, k) {
         ctx.globalAlpha = 1;
       }
       if (pxRing >= 26) {
-        ctx.fillStyle = i === 0 ? c.bg : c.fg;
+        ctx.fillStyle = overlay ? '#FFFFFF' : i === 0 ? c.bg : c.fg;
         if (k > 1) {
           // Vu de l'interieur, le tunnel defile vers le bas de l'ecran : le texte doit suivre.
           ctx.save();

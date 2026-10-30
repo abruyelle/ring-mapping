@@ -4,8 +4,13 @@ import { fmtLen, fmtStation, lenValue } from './geometry.js';
 export const prefs = { lang: 'fr', unit: 'ft' };
 
 const FR = {
+  'm3d.model': 'Modèle 3D', 'm3d.inside': 'Intérieur', 'm3d.ar': 'Caméra', 'ar.freeze': 'Figer l’image', 'ar.resume': 'Reprendre', 'ar.file': 'Photo existante',
+  'help.model': 'Glissez pour tourner autour de l’anneau, pincez pour zoomer. Regardez l’intérieur par une extrémité pour tracer sur le segment ; à deux doigts, la vue tourne.',
+  'help.inside': 'Vue depuis l’axe, vers l’avancement : le haut de l’écran est l’anneau précédent. Glissez pour regarder autour, pincez pour zoomer.',
+  'help.ar': 'Visez l’anneau et calez le gabarit sur les joints : un doigt pour le déplacer, deux pour zoomer et tourner. Figez l’image, puis dessinez.',
+  'msg.noCamera': 'Caméra indisponible : utilisez une photo existante', 'msg.noGyro': 'Gyroscope non autorisé : le gabarit ne suivra pas l’appareil',
   'tool.zone': 'Zone', 'col.photos': 'Photos', 'd.view3d': 'Vue 3D', 'd.addPhotos': 'Ajouter des photos', 'r.photos': 'Photos des défauts',
-  'v3d.close': 'Fermer', 'v3d.prev': 'Anneau précédent', 'v3d.next': 'Anneau suivant', 'v3d.help': 'Vue depuis l’intérieur, vers l’avancement : le haut de l’écran est l’anneau précédent. Glissez pour regarder autour, pincez ou utilisez la molette pour zoomer. Avec un outil, tracez sur le segment ; deux doigts déplacent la vue.',
+  'v3d.close': 'Fermer', 'v3d.prev': 'Anneau précédent', 'v3d.next': 'Anneau suivant',
   'msg.no3d': 'La vue 3D n’est pas disponible sur cet appareil', 'msg.photoAdded': 'Photos ajoutées : {n}', 'msg.photoFail': 'Cette image n’a pas pu être lue', 'msg.confirmPhoto': 'Supprimer cette photo ?',
   'tab.aria': 'Écrans', 'tab.data': 'Données', 'tab.ring': 'Anneaux', 'tab.def': 'Défauts',
   'app.note': 'Anneaux dépliés autour de la crown, clé en orange. Les données restent sur cet appareil.',
@@ -58,8 +63,13 @@ const FR = {
 };
 
 const EN = {
+  'm3d.model': '3D model', 'm3d.inside': 'Inside', 'm3d.ar': 'Camera', 'ar.freeze': 'Freeze image', 'ar.resume': 'Resume', 'ar.file': 'Existing photo',
+  'help.model': 'Drag to orbit the ring, pinch to zoom. Look inside through one end to draw on the segment; with two fingers the view orbits.',
+  'help.inside': 'View from the axis, facing the drive direction: the top of the screen is the previous ring. Drag to look around, pinch to zoom.',
+  'help.ar': 'Aim at the ring and align the template with the joints: one finger moves it, two zoom and rotate. Freeze the image, then draw.',
+  'msg.noCamera': 'Camera unavailable: use an existing photo', 'msg.noGyro': 'Gyroscope not allowed: the template will not follow the device',
   'tool.zone': 'Zone', 'col.photos': 'Photos', 'd.view3d': '3D view', 'd.addPhotos': 'Add photos', 'r.photos': 'Defect photos',
-  'v3d.close': 'Close', 'v3d.prev': 'Previous ring', 'v3d.next': 'Next ring', 'v3d.help': 'View from inside, facing the drive direction: the top of the screen is the previous ring. Drag to look around, pinch or use the wheel to zoom. With a tool, draw on the segment; two fingers move the view.',
+  'v3d.close': 'Close', 'v3d.prev': 'Previous ring', 'v3d.next': 'Next ring',
   'msg.no3d': '3D view is not available on this device', 'msg.photoAdded': 'Photos added: {n}', 'msg.photoFail': 'This image could not be read', 'msg.confirmPhoto': 'Delete this photo?',
   'tab.aria': 'Screens', 'tab.data': 'Data', 'tab.ring': 'Rings', 'tab.def': 'Defects',
   'app.note': 'Rings unrolled around the crown, key in orange. Data stays on this device.',

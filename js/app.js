@@ -11,7 +11,7 @@ import {
   FORMAT, TEMPLATE, normalizeProject, parseSegments, parseTunnels, parseTypes, segmentsText, tunnelsText, typesText,
 } from './project.js';
 
-const APP_VERSION = 'v5'; // garder en phase avec VERSION dans sw.js
+const APP_VERSION = 'v6'; // garder en phase avec VERSION dans sw.js
 const AXIS = 76;
 const TOP = 34;
 const MAP_H = 400;
@@ -208,6 +208,7 @@ async function placeDefect(type, pts) {
     T.defects.push(f);
     S.sel = f.id;
     say(tr('msg.saved', { type: tr('tool.' + type) }));
+    await attachFrozenPhoto(f);
   }
   S.ringSel = Math.floor(pts[0].r);
   setTool('view');
@@ -551,7 +552,7 @@ function paint3D(ctx, fromFt, toFt, w, h) {
   drawStrip(ctx, {
     layout: T.layout, rings: T.rings, defects: T.defects, geo: T.geo, typeOf: T.typeOf,
     fromFt, toFt, scale: w / (toFt - fromFt), x0: 0, top: 0, H: h, c: colors,
-    selRing: S.ringSel, selId: S.sel, k: 2,
+    selRing: S.ringSel, selId: S.sel, k: 2, overlay: R3?.mode === 'ar',
   });
 }
 
@@ -560,7 +561,7 @@ function show3D(n, deg) {
   const b = Math.min(T.total, n + 1);
   const s = T.layout.start;
   S.ringSel = n;
-  R3.setRange(s[a], s[b + 1], (s[n] + s[n + 1]) / 2, T.geo.circ / (2 * Math.PI));
+  R3.setRange(s[a], s[b + 1], s[n], s[n + 1], T.geo.circ / (2 * Math.PI));
   if (deg !== undefined) R3.look(deg);
   $('v3dTitle').textContent = `${tr('d.ring')} ${n}`;
   $('v3dPrev').disabled = !T.rings.has(n - 1);
@@ -581,13 +582,107 @@ async function open3D(n, deg) {
   $('side3d').append($('detail'));
   R3.resize();
   show3D(n, deg);
+  setMode3D('model');
 }
+
+function setMode3D(mode) {
+  stopCamera();
+  R3.setMode(mode);
+  document.querySelectorAll('[data-m3d]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.m3d === mode));
+  $('v3d').dataset.mode = mode;
+  $('v3dHelp').textContent = tr('help.' + mode);
+  showFreeze();
+  if (mode === 'ar') startCamera();
+}
+
+// --- Camera et gyroscope -------------------------------------------------
+const video = $('arVideo');
+const still = $('arStill');
+
+function onOrientation(e) {
+  if (e.alpha !== null && S.v3d) R3.setDevice(e.alpha, e.beta, e.gamma, screen.orientation?.angle ?? 0);
+}
+
+function showFreeze() {
+  $('arFreeze').textContent = tr(R3.frozen ? 'ar.resume' : 'ar.freeze');
+}
+
+async function startCamera() {
+  window.addEventListener('deviceorientation', onOrientation);
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 } }, audio: false });
+    if (R3.mode !== 'ar') {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    video.srcObject = stream;
+    video.hidden = false;
+    await video.play();
+  } catch {
+    say(tr('msg.noCamera'));
+  }
+}
+
+function stopCamera() {
+  window.removeEventListener('deviceorientation', onOrientation);
+  video.srcObject?.getTracks().forEach((t) => t.stop());
+  video.srcObject = null;
+  video.hidden = true;
+  still.hidden = true;
+  if (R3) R3.frozen = false;
+}
+
+// Figer l'image : le gabarit ne bouge plus, on dessine calmement, et la photo est gardee.
+function freezeCamera() {
+  if (R3.frozen) {
+    R3.frozen = false;
+    still.hidden = true;
+    video.play().catch(() => {});
+  } else {
+    if (!video.videoWidth) return say(tr('msg.noCamera'));
+    video.pause();
+    R3.frozen = true;
+  }
+  showFreeze();
+}
+
+$('arFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  still.src = await compressImage(file);
+  await still.decode();
+  still.hidden = false;
+  video.pause();
+  R3.frozen = true;
+  showFreeze();
+});
+
+async function attachFrozenPhoto(f) {
+  if (!S.v3d || R3.mode !== 'ar' || !R3.frozen) return;
+  const source = still.hidden ? video : still;
+  const [w, h] = still.hidden ? [video.videoWidth, video.videoHeight] : [still.naturalWidth, still.naturalHeight];
+  const now = new Date().toISOString();
+  await store.savePhoto({ id: crypto.randomUUID(), defect: f.id, tunnel: f.tunnel, data: R3.snapshot(source, w, h), by: S.author, createdAt: now, updatedAt: now });
+  f.photos = (f.photos ?? 0) + 1;
+  await saveDefect(f);
+}
+
+document.querySelectorAll('[data-m3d]').forEach((b) => (b.onclick = async () => {
+  // iOS exige que l'autorisation du gyroscope soit demandee directement au toucher.
+  if (b.dataset.m3d === 'ar' && DeviceOrientationEvent?.requestPermission) {
+    await DeviceOrientationEvent.requestPermission().catch(() => say(tr('msg.noGyro')));
+  }
+  setMode3D(b.dataset.m3d);
+}));
+$('arFreeze').onclick = freezeCamera;
 
 function close3D() {
   S.v3d = false;
   S.draft = null;
   fingers.clear();
   R3.setDraft(null);
+  stopCamera();
   $('v3d').hidden = true;
   document.querySelector('.side').prepend($('detail'));
   setTool('view');
@@ -632,11 +727,15 @@ const spread = () => {
   const [a, b] = [...fingers.values()];
   return b ? Math.hypot(a[0] - b[0], a[1] - b[1]) : 0;
 };
+const angle = () => {
+  const [a, b] = [...fingers.values()];
+  return b ? (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI : 0;
+};
 
 c3.addEventListener('pointerdown', (e) => {
   fingers.set(e.pointerId, [e.clientX, e.clientY]);
   c3.setPointerCapture(e.pointerId);
-  gesture = { at: centroid(), spread: spread(), moved: false };
+  gesture = { at: centroid(), spread: spread(), angle: angle(), moved: false };
   if (fingers.size > 1) {
     S.draft = null;
     R3.setDraft(null);
@@ -665,7 +764,9 @@ c3.addEventListener('pointermove', (e) => {
   R3.orbit(dx, dy);
   if (fingers.size === 2 && gesture.spread) {
     R3.zoom(spread() / gesture.spread);
+    R3.twist(angle() - gesture.angle);
     gesture.spread = spread();
+    gesture.angle = angle();
     gesture.moved = true;
   }
   gesture.at = [x, y];
@@ -674,7 +775,7 @@ function release(e) {
   fingers.delete(e.pointerId);
   if (S.draft && !fingers.size) return finishDraft();
   if (fingers.size) {
-    gesture = { at: centroid(), spread: spread(), moved: true };
+    gesture = { at: centroid(), spread: spread(), angle: angle(), moved: true };
     return;
   }
   if (S.tool !== 'view' || gesture?.moved) return;
@@ -804,6 +905,10 @@ $('lang').onchange = async (e) => {
   prefs.lang = e.target.value;
   await store.setMeta('lang', prefs.lang);
   applyI18n();
+  if (S.v3d) {
+    $('v3dHelp').textContent = tr('help.' + R3.mode);
+    showFreeze();
+  }
   if (T) refresh();
 };
 $('unit').onchange = async (e) => {

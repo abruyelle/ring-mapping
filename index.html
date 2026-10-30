@@ -124,6 +124,13 @@
     <button class="btn" id="v3dPrev" type="button" data-i18n-aria="v3d.prev">&#8593;</button>
     <strong id="v3dTitle"></strong>
     <button class="btn" id="v3dNext" type="button" data-i18n-aria="v3d.next">&#8595;</button>
+    <div class="switch">
+      <button class="btn" type="button" data-m3d="model" data-i18n="m3d.model"></button>
+      <button class="btn" type="button" data-m3d="inside" data-i18n="m3d.inside"></button>
+      <button class="btn" type="button" data-m3d="ar" data-i18n="m3d.ar"></button>
+      <button class="btn primary ar-only" id="arFreeze" type="button"></button>
+      <label class="btn ar-only"><span data-i18n="ar.file"></span><input id="arFile" type="file" accept="image/*" class="vh"></label>
+    </div>
     <div class="tools" role="group" data-i18n-aria="aria.tool">
       <button class="btn" type="button" data-tool="view" data-i18n="tool.view"></button>
       <button class="btn" type="button" data-tool="crack" data-i18n="tool.crack"></button>
@@ -135,7 +142,7 @@
     </div>
   </div>
   <div class="v3d-main">
-    <div class="v3d-view"><canvas id="c3d"></canvas><p class="v3d-help" data-i18n="v3d.help"></p></div>
+    <div class="v3d-view"><video id="arVideo" playsinline muted hidden></video><img id="arStill" alt="" hidden><canvas id="c3d"></canvas><p class="v3d-help" id="v3dHelp"></p></div>
     <div id="side3d"></div>
   </div>
 </section>

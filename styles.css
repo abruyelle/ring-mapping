@@ -97,6 +97,11 @@ tbody tr[data-id]:hover,tbody tr.on{background:var(--bg)}
 .v3d-bar .btn:disabled{opacity:.4}
 .v3d-main{display:grid;grid-template-columns:minmax(0,1fr) 320px;min-height:0}
 .v3d-view{position:relative;min-height:0}
+#arVideo,#arStill{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+#arVideo[hidden],#arStill[hidden]{display:none}
+.ar-only{display:none}
+#v3d[data-mode="ar"] .ar-only{display:inline-flex}
+.v3d-view{background:#23282D}
 #c3d{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
 .v3d-help{position:absolute;left:10px;bottom:8px;right:10px;margin:0;color:#fff;font-size:12px;text-shadow:0 1px 2px #000;pointer-events:none}
 #side3d{overflow-y:auto;background:var(--bg);padding:10px;min-height:0}
@@ -138,7 +143,8 @@ tbody tr[data-id]:hover,tbody tr.on{background:var(--bg)}
   .exports .btn{flex:1 1 45%;justify-content:center}
   .v3d-main{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(0,42%)}
   .v3d-bar .tools{order:5}
-  .v3d-help{display:none}
+  #v3d:not([data-mode="ar"]) .v3d-help{display:none}
+  .v3d-help{font-size:11px;bottom:4px}
   #tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;display:grid;grid-template-columns:repeat(3,1fr);background:var(--surface);border-top:1px solid var(--line);padding:6px max(8px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px));gap:6px}
   #tabs button{min-height:46px;border:0;border-radius:6px;background:transparent;font-weight:600;color:var(--muted);cursor:pointer}
   #tabs button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}

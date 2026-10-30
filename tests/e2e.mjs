@@ -13,7 +13,7 @@ const URL_APP = `http://localhost:${PORT}/`;
 
 const server = spawn(process.execPath, ['serve.mjs'], { env: { ...process.env, PORT }, stdio: 'ignore' });
 await new Promise((r) => setTimeout(r, 700));
-const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
 const ctx = await browser.newContext({ viewport: { width: 1360, height: 950 }, acceptDownloads: true });
 const page = await ctx.newPage();
 const errors = [];
@@ -210,6 +210,8 @@ try {
   await q.waitForSelector('#v3d:not([hidden])');
   await q.waitForTimeout(600);
   await q.screenshot({ path: join(out, '6-3d.png') });
+  await q.click('[data-m3d="inside"]');
+  await q.waitForTimeout(300);
   const b3 = await q.locator('#c3d').boundingBox();
   const [cx, cy] = [b3.x + b3.width / 2, b3.y + b3.height / 2];
   await q.click('#v3d [data-tool="zone"]');
@@ -229,11 +231,49 @@ try {
   await q.click('#dThumbs img');
   await q.waitForSelector('#photoDlg[open]');
   await q.click('#photoDlg');
+
+  // Camera : le gabarit suit le gyroscope, et l'image figee est jointe au defaut.
+  await c3.grantPermissions(['camera']);
+  await q.click('[data-m3d="ar"]');
+  await q.waitForFunction(() => document.querySelector('#arVideo').videoWidth > 0);
+  const tilt = (alpha) => q.evaluate((a) => window.dispatchEvent(new DeviceOrientationEvent('deviceorientation', { alpha: a, beta: 90, gamma: 0 })), alpha);
+  await tilt(0);
+  await q.click('#v3d [data-tool="leak"]');
+  await q.mouse.click(cx, cy);
+  await rowCount(2, q);
+  const posOf = async (i) => (await q.locator('#rows tr').nth(i).locator('td').allTextContents()).slice(3, 4)[0];
+  const first = await q.locator('#rows tr').evaluateAll((r) => r.map((x) => x.cells[3].textContent));
+  await tilt(70);
+  await q.waitForTimeout(100);
+  await q.click('#v3d [data-tool="leak"]');
+  await q.mouse.click(cx, cy);
+  await rowCount(3, q);
+  const after = await q.locator('#rows tr').evaluateAll((r) => r.map((x) => x.cells[3].textContent));
+  assert.ok(after.some((p) => !first.includes(p)), 'le gabarit suit le gyroscope : ' + after);
+  await q.click('#arFreeze');
+  await tilt(0);
+  await q.click('#v3d [data-tool="spall"]');
+  await q.mouse.click(cx, cy);
+  await rowCount(4, q);
+  await q.waitForFunction(() => document.querySelectorAll('#dThumbs img').length === 1);
+  await q.waitForTimeout(400);
+  await q.screenshot({ path: join(out, '6-camera.png') });
+  await q.click('[data-m3d="model"]');
+  await q.waitForTimeout(300);
+  await q.screenshot({ path: join(out, '6-modele.png') });
+  assert.equal(await q.evaluate(() => document.querySelector('#arVideo').srcObject), null, 'camera coupee');
+
   await q.click('#v3dNext');
   await q.waitForFunction(() => document.querySelector('#v3dTitle').textContent.includes('101'));
   await q.click('#v3dClose');
   await q.waitForFunction(() => document.querySelector('#v3d').hidden);
   assert.ok(await q.locator('.side #detail').count());
+  await q.click('#rows tr[data-id]:has-text("Infiltration") [data-act="delete"]');
+  await rowCount(3, q);
+  await q.click('#rows tr[data-id]:has-text("Infiltration") [data-act="delete"]');
+  await rowCount(2, q);
+  await q.click('#rows tr[data-id]:has-text("Épaufrure") [data-act="delete"]');
+  await rowCount(1, q);
   await q.evaluate(() => { window.print = () => {}; });
   await q.click('#bPrint');
   await q.waitForFunction(() => document.querySelectorAll('#report .r-photos img').length === 2);

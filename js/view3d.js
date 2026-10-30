@@ -1,10 +1,11 @@
-// Vue 3D d'un anneau et de ses voisins, depuis l'axe du tunnel.
+// Vues 3D d'un anneau : modele en orbite, vue interieure et gabarit sur la camera.
 // Le developpe est dessine dans une texture posee sur le cylindre : tout ce qui est vu ou trace
-// en 3D reste exprime en position le long du tunnel et en angle depuis la crown.
+// reste exprime en position le long du tunnel et en angle depuis la crown.
 let THREE = null;
 const TEX_W = 512;
 const TEX_H = 2048;
 const STEPS = 96;
+const THICK = 1.06; // epaisseur d'affichage du modele, pas une cote
 const rad = (d) => (d * Math.PI) / 180;
 
 export class Ring3D {
@@ -16,53 +17,96 @@ export class Ring3D {
   constructor(canvas, paint) {
     this.canvas = canvas;
     this.paint = paint;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    this.mode = 'model';
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x23282d);
-    this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
-    this.camera.up.set(0, 0, 1); // le haut de l'ecran est l'anneau precedent
+    this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 400);
     this.yaw = 0;
     this.tilt = 0;
+    this.roll = 0;
+    this.az = 30;
+    this.el = 12;
+    this.dist = 2.2;
+    this.frozen = false;
     this.tex = document.createElement('canvas');
     this.tex.width = TEX_W;
     this.tex.height = TEX_H;
     this.texture = new THREE.CanvasTexture(this.tex);
     this.texture.colorSpace = THREE.SRGBColorSpace;
     this.texture.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
-    this.mesh = new THREE.Mesh(
-      new THREE.BufferGeometry(),
-      new THREE.MeshBasicMaterial({ map: this.texture, side: THREE.DoubleSide }),
-    );
-    this.scene.add(this.mesh);
+    const skin = new THREE.MeshBasicMaterial({ map: this.texture, side: THREE.DoubleSide, transparent: true });
+    this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), skin); // anneau et voisins, vus de l'interieur
+    this.inner = new THREE.Mesh(new THREE.BufferGeometry(), skin); // intrados du modele
+    const shell = new THREE.MeshBasicMaterial({ color: 0x9aa3aa, side: THREE.DoubleSide });
+    this.outer = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0xb4bbc1, side: THREE.DoubleSide }));
+    this.endA = new THREE.Mesh(new THREE.BufferGeometry(), shell);
+    this.endB = new THREE.Mesh(new THREE.BufferGeometry(), shell);
+    this.model = new THREE.Group();
+    this.model.add(this.inner, this.outer, this.endA, this.endB);
+    this.scene.add(this.mesh, this.model);
     this.draft = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xc41e3a }));
     this.scene.add(this.draft);
     this.ray = new THREE.Raycaster();
+    this.base = new THREE.Quaternion();
+    this.delta = new THREE.Quaternion();
+    this.device = null;
     this.raf = 0;
     this.stale = true;
+    this.setMode('model');
   }
 
-  setRange(fromFt, toFt, centerFt, radius) {
-    Object.assign(this, { fromFt, toFt, centerFt, radius });
+  setMode(mode) {
+    this.mode = mode;
+    this.mesh.visible = mode !== 'model';
+    this.model.visible = mode === 'model';
+    this.camera.up.set(0, mode === 'model' ? 1 : 0, mode === 'model' ? 0 : 1);
+    this.camera.fov = 60;
+    this.camera.updateProjectionMatrix();
+    this.scene.background = mode === 'ar' ? null : new THREE.Color(0x23282d);
+    this.roll = 0;
+    this.base.identity();
+    this.device = null;
+    this.frozen = false;
+    this.invalidate();
+  }
+
+  tube(fromFt, toFt, scale) {
     const pos = [];
     const uv = [];
     const index = [];
+    const u = (ft) => (ft - this.fromFt) / (this.toFt - this.fromFt);
     for (let i = 0; i <= STEPS; i++) {
       const d = -180 + (360 * i) / STEPS;
-      for (let j = 0; j <= 1; j++) {
-        pos.push(...this.world(fromFt + j * (toFt - fromFt), d));
-        uv.push(j, 1 - i / STEPS);
+      for (const ft of [fromFt, toFt]) {
+        pos.push(...this.world(ft, d, scale));
+        uv.push(u(ft), 1 - i / STEPS);
       }
       if (i < STEPS) {
         const a = i * 2;
         index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
       }
     }
-    const g = this.mesh.geometry;
+    const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     g.setIndex(index);
     g.computeBoundingSphere();
+    return g;
+  }
+
+  // Anneau selectionne de ringFrom a ringTo, voisins compris de fromFt a toFt.
+  setRange(fromFt, toFt, ringFrom, ringTo, radius) {
+    Object.assign(this, { fromFt, toFt, centerFt: (ringFrom + ringTo) / 2, radius });
+    this.mesh.geometry = this.tube(fromFt, toFt, 1);
+    this.inner.geometry = this.tube(ringFrom, ringTo, 1);
+    this.outer.geometry = this.tube(ringFrom, ringTo, THICK);
+    const end = new THREE.RingGeometry(radius, radius * THICK, STEPS);
+    this.endA.geometry = end;
+    this.endB.geometry = end;
+    const half = (ringTo - ringFrom) / 2;
+    this.endA.position.z = half;
+    this.endB.position.z = -half;
     this.invalidate();
   }
 
@@ -79,15 +123,29 @@ export class Ring3D {
   }
 
   orbit(dx, dy) {
-    const perPx = this.camera.fov / (this.canvas.clientHeight || 1);
-    this.yaw -= dx * perPx;
-    this.tilt = Math.max(-55, Math.min(55, this.tilt - dy * perPx));
+    if (this.mode === 'model') {
+      this.az -= dx * 0.4;
+      this.el = Math.max(-85, Math.min(85, this.el + dy * 0.4));
+    } else {
+      const perPx = this.camera.fov / (this.canvas.clientHeight || 1);
+      this.yaw -= dx * perPx;
+      this.tilt = Math.max(-75, Math.min(75, this.tilt - dy * perPx));
+    }
     this.request();
   }
 
   zoom(ratio) {
-    this.camera.fov = Math.max(12, Math.min(80, this.camera.fov / ratio));
-    this.camera.updateProjectionMatrix();
+    if (this.mode === 'model') this.dist = Math.max(0.9, Math.min(5, this.dist / ratio));
+    else {
+      this.camera.fov = Math.max(12, Math.min(100, this.camera.fov / ratio));
+      this.camera.updateProjectionMatrix();
+    }
+    this.request();
+  }
+
+  twist(deg) {
+    if (this.mode === 'model') return;
+    this.roll += deg;
     this.request();
   }
 
@@ -107,8 +165,9 @@ export class Ring3D {
     this.aim();
     this.camera.updateMatrixWorld();
     this.ray.setFromCamera(ndc, this.camera);
-    const [first] = this.ray.intersectObject(this.mesh);
-    if (!first) return null;
+    const targets = this.mode === 'model' ? [this.inner, this.outer, this.endA, this.endB] : [this.mesh];
+    const [first] = this.ray.intersectObjects(targets);
+    if (!first?.uv || (this.mode === 'model' && first.object !== this.inner)) return null;
     return { ft: this.fromFt + first.uv.x * (this.toFt - this.fromFt), d: (1 - first.uv.y) * 360 - 180 };
   }
 
@@ -119,10 +178,47 @@ export class Ring3D {
     this.request();
   }
 
+  // Orientation de l'appareil, memorisee par rapport a sa position a l'ouverture de la camera.
+  setDevice(alpha, beta, gamma, screenAngle) {
+    if (this.frozen) return;
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(rad(beta), rad(alpha), rad(-gamma), 'YXZ'));
+    q.multiply(new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2));
+    q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), rad(-screenAngle)));
+    this.device ??= q.clone().invert();
+    this.delta.copy(this.device).multiply(q);
+    this.request();
+  }
+
   aim() {
+    const cam = this.camera;
+    if (this.mode === 'model') {
+      const a = rad(this.az);
+      const e = rad(this.el);
+      const d = this.dist * this.radius;
+      cam.position.set(d * Math.sin(a) * Math.cos(e), d * Math.sin(e), d * Math.cos(a) * Math.cos(e));
+      cam.lookAt(0, 0, 0);
+      return;
+    }
+    cam.position.set(0, 0, 0);
     const y = rad(this.yaw);
     const t = rad(this.tilt);
-    this.camera.lookAt(Math.sin(y) * Math.cos(t), Math.cos(y) * Math.cos(t), -Math.sin(t));
+    cam.lookAt(Math.sin(y) * Math.cos(t), Math.cos(y) * Math.cos(t), -Math.sin(t));
+    if (this.mode === 'ar') {
+      cam.rotateZ(rad(this.roll));
+      cam.quaternion.multiply(this.delta);
+    }
+  }
+
+  draw() {
+    if (this.stale) {
+      const ctx = this.tex.getContext('2d');
+      ctx.clearRect(0, 0, TEX_W, TEX_H);
+      this.paint(ctx, this.fromFt, this.toFt, TEX_W, TEX_H);
+      this.texture.needsUpdate = true;
+      this.stale = false;
+    }
+    this.aim();
+    this.renderer.render(this.scene, this.camera);
   }
 
   invalidate() {
@@ -132,16 +228,23 @@ export class Ring3D {
 
   request() {
     cancelAnimationFrame(this.raf);
-    this.raf = requestAnimationFrame(() => {
-      if (this.stale) {
-        const ctx = this.tex.getContext('2d');
-        ctx.clearRect(0, 0, TEX_W, TEX_H);
-        this.paint(ctx, this.fromFt, this.toFt, TEX_W, TEX_H);
-        this.texture.needsUpdate = true;
-        this.stale = false;
-      }
-      this.aim();
-      this.renderer.render(this.scene, this.camera);
-    });
+    this.raf = requestAnimationFrame(() => this.draw());
+  }
+
+  // Image de fond et gabarit reunis, pour la photo jointe au defaut.
+  snapshot(source, sw, sh) {
+    this.stale = true;
+    this.draw();
+    const box = this.canvas;
+    const scale = Math.min(1, 1600 / Math.max(sw, sh));
+    const out = document.createElement('canvas');
+    const ratio = box.clientWidth / box.clientHeight;
+    const crop = sw / sh > ratio ? [sh * ratio, sh] : [sw, sw / ratio];
+    out.width = Math.round(crop[0] * scale);
+    out.height = Math.round(crop[1] * scale);
+    const ctx = out.getContext('2d');
+    ctx.drawImage(source, (sw - crop[0]) / 2, (sh - crop[1]) / 2, crop[0], crop[1], 0, 0, out.width, out.height);
+    ctx.drawImage(box, 0, 0, out.width, out.height);
+    return out.toDataURL('image/jpeg', 0.8);
   }
 }
