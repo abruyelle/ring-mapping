@@ -11,7 +11,7 @@ import {
   FORMAT, TEMPLATE, normalizeProject, parseSegments, parseTunnels, parseTypes, segmentsText, tunnelsText, typesText,
 } from './project.js';
 
-const APP_VERSION = 'v8'; // garder en phase avec VERSION dans sw.js
+const APP_VERSION = 'v9'; // garder en phase avec VERSION dans sw.js
 const AXIS = 76;
 const TOP = 34;
 const MAP_H = 400;
@@ -817,14 +817,16 @@ function buildTunnel() {
   $('tunRing').max = Math.max(1, last);
   $('tunRing').value = Math.max(1, last);
   $('tunLabel').textContent = last ? `${tr('d.ring')} ${last}` : '';
+  $('tunNoAxis').hidden = !!T.axis;
   TUN.build(T, colors);
-  if (last) TUN.focusRing(last);
+  if (T.axis) TUN.view('all');
+  else if (last) TUN.focusRing(last);
 }
 
 async function openTunnel() {
   if (!T) return;
   try {
-    TUN ??= await Tunnel3D.create(cT);
+    TUN ??= await Tunnel3D.create(cT, $('tunOver'));
   } catch {
     say(tr('msg.no3d'));
     return;

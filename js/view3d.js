@@ -251,13 +251,16 @@ export class Ring3D {
 
 // Tous les anneaux montes, assembles en un seul objet pour rester fluide sur telephone.
 export class Tunnel3D {
-  static async create(canvas) {
+  static async create(canvas, overlay) {
     THREE ??= await import('../lib/three.module.min.js');
-    return new Tunnel3D(canvas);
+    return new Tunnel3D(canvas, overlay);
   }
 
-  constructor(canvas) {
+  constructor(canvas, overlay) {
     this.canvas = canvas;
+    this.overlay = overlay;
+    this.trace = null;
+    this.built = [];
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.scene = new THREE.Scene();
@@ -265,8 +268,6 @@ export class Tunnel3D {
     this.camera = new THREE.PerspectiveCamera(50, 1, 1, 200000);
     this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
     this.scene.add(this.mesh);
-    this.rest = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x9aa3aa }));
-    this.scene.add(this.rest);
     this.marks = null;
     this.target = new THREE.Vector3();
     this.ray = new THREE.Raycaster();
@@ -366,21 +367,29 @@ export class Tunnel3D {
       });
       this.scene.add(this.marks);
     }
-    // Reste du trace, pour situer le front de pose.
-    const rest = [];
+    // Trace complet et partie construite, dessines par-dessus pour rester lisibles a toute echelle.
+    this.trace = t.axis?.path.pts ?? null;
+    this.built = [];
     if (t.axis) {
-      const step = Math.max(1, Math.round((t.total - t.lastRing) / 400));
-      for (let n = t.lastRing + 1; n <= t.total; n += step) rest.push(...frame(n)[0].c);
+      const step = Math.max(1, Math.round(t.lastRing / 300));
+      for (let n = 1; n <= t.lastRing; n += step) this.built.push(frame(n)[0].c);
+      if (t.lastRing) this.built.push(frame(t.lastRing)[1].c);
     }
-    this.rest.geometry.setAttribute('position', new THREE.Float32BufferAttribute(rest, 3));
-    this.rest.visible = rest.length > 3;
     this.frame = frame;
     this.request();
   }
 
   focusRing(n) {
     this.target.set(...this.frame(n)[0].c);
+    if (this.dist > 600) this.dist = 120;
     this.request();
+  }
+
+  extent() {
+    const box = new THREE.Box3();
+    if (this.trace) this.trace.forEach((p) => box.expandByPoint(new THREE.Vector3(...p)));
+    else box.setFromBufferAttribute(this.mesh.geometry.getAttribute('position'));
+    return box;
   }
 
   // Vues rapides. Le tracé entier reste tres fin : ces vues servent a lire les courbes.
@@ -388,16 +397,14 @@ export class Tunnel3D {
     if (kind === 'top') this.el = 89;
     if (kind === 'side') {
       this.el = 0;
-      const box = new THREE.Box3().setFromBufferAttribute(this.mesh.geometry.getAttribute('position'));
-      const size = box.getSize(new THREE.Vector3());
+      const size = this.extent().getSize(new THREE.Vector3());
       this.az = (Math.atan2(size.z, size.x) * 180) / Math.PI;
     }
     if (kind === 'all') {
-      const box = new THREE.Box3().setFromBufferAttribute(this.mesh.geometry.getAttribute('position'));
-      if (this.rest.visible) box.union(new THREE.Box3().setFromBufferAttribute(this.rest.geometry.getAttribute('position')));
+      const box = this.extent();
       box.getCenter(this.target);
-      this.dist = box.getSize(new THREE.Vector3()).length() * 1.15;
-      this.el = 55;
+      this.dist = box.getSize(new THREE.Vector3()).length() * 1.2;
+      this.el = 70;
     }
     this.request();
   }
@@ -450,6 +457,43 @@ export class Tunnel3D {
     this.raf = requestAnimationFrame(() => {
       this.aim();
       this.renderer.render(this.scene, this.camera);
+      this.drawTrace();
     });
+  }
+
+  drawTrace() {
+    const c = this.overlay;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const [w, h] = [c.clientWidth, c.clientHeight];
+    if (c.width !== Math.round(w * dpr)) c.width = Math.round(w * dpr);
+    if (c.height !== Math.round(h * dpr)) c.height = Math.round(h * dpr);
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (!this.trace) return;
+    const v = new THREE.Vector3();
+    const stroke = (pts, color, width) => {
+      ctx.beginPath();
+      let pen = false;
+      for (const p of pts) {
+        v.set(...p).project(this.camera);
+        if (Math.abs(v.z) > 1) {
+          pen = false;
+          continue;
+        }
+        const [x, y] = [((v.x + 1) / 2) * w, ((1 - v.y) / 2) * h];
+        if (pen) ctx.lineTo(x, y);
+        else ctx.moveTo(x, y);
+        pen = true;
+      }
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+    };
+    ctx.globalAlpha = this.dist > 200 ? 1 : 0.35; // de pres, le trace ne doit pas masquer les anneaux
+    stroke(this.trace, '#FFD23F', 2.5);
+    stroke(this.built, '#E8541E', 5);
+    ctx.globalAlpha = 1;
   }
 }

@@ -213,10 +213,28 @@ try {
   await u.locator('#cTun').scrollIntoViewIfNeeded();
   await u.waitForTimeout(700);
   await u.screenshot({ path: join(out, '7-tunnel.png') });
+  const inked = () => u.evaluate(() => {
+    const c = document.getElementById('tunOver');
+    return c.getContext('2d').getImageData(0, 0, c.width, c.height).data.filter((v, i) => i % 4 === 3 && v > 100).length;
+  });
+  const hasAxis = await u.locator('#tunNoAxis').isHidden();
+  if (hasAxis) {
+    assert.ok(await inked() > 300, 'trace visible sur le tunnel construit');
+    await u.click('#tunnels [data-t="S"]');
+    await u.waitForFunction(() => document.querySelector('#stats b').textContent.startsWith('0 /'));
+    await u.waitForTimeout(500);
+    assert.ok(await inked() > 300, 'trace visible sans anneau pose');
+    await u.screenshot({ path: join(out, '7-trace-sud.png') });
+    await u.click('#tunnels [data-t="N"]');
+    await u.waitForFunction(() => !document.querySelector('#stats b').textContent.startsWith('0 /'));
+    await u.waitForTimeout(400);
+  }
   assert.equal(await u.inputValue('#tunRing'), await u.getAttribute('#tunRing', 'max'));
   await u.evaluate(() => { const s = document.getElementById('tunRing'); s.value = 50; s.dispatchEvent(new Event('input')); });
   await u.waitForTimeout(200);
   assert.match(await u.textContent('#tunLabel'), /Anneau 50/);
+  await u.locator('#cTun').scrollIntoViewIfNeeded();
+  await u.waitForTimeout(200);
   const bt = await u.locator('#cTun').boundingBox();
   await u.mouse.click(bt.x + bt.width / 2, bt.y + bt.height / 2);
   await u.waitForSelector('#v3d:not([hidden])');

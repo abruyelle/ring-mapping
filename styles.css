@@ -85,6 +85,8 @@ tbody tr[data-id]:hover,tbody tr.on{background:var(--bg)}
 .report{display:none}
 .tun-view{position:relative;height:520px;background:#23282D}
 #cTun{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#tunOver{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.tun-warn{margin:10px 14px 0;color:var(--crack);font-weight:600}
 .tun-nav{display:flex;gap:10px;align-items:center;padding:10px 14px 0;font-weight:600;font-size:14px}
 .tun-nav span{min-width:96px}
 .tun-nav input{flex:1;min-width:0}
