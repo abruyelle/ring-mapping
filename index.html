@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ring Mapping</title>
+<meta name="theme-color" content="#FFFFFF">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="styles.css">
+<script src="lib/xlsx.mini.min.js" defer></script>
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<div class="wrap" id="app">
+  <header class="top">
+    <div>
+      <h1 id="title">Ring Mapping</h1>
+      <p class="note" data-i18n="app.note"></p>
+    </div>
+    <div class="topctl">
+      <div class="switch" id="tunnels" role="group" data-i18n-aria="aria.tunnel"></div>
+      <select id="project" aria-label="Project"></select>
+      <button class="btn" id="bProject" type="button" data-i18n="p.edit"></button>
+      <button class="btn" id="bNewProject" type="button" data-i18n="p.new"></button>
+      <select id="lang" data-i18n-aria="pref.lang"><option value="fr">Français</option><option value="en">English</option></select>
+      <select id="unit" data-i18n-aria="pref.unit"><option value="ft" data-i18n="unit.ft"></option><option value="m" data-i18n="unit.m"></option></select>
+    </div>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="bar">
+    <div class="tools" role="group" data-i18n-aria="aria.tool">
+      <button class="btn" type="button" data-tool="view" data-i18n="tool.view"></button>
+      <button class="btn" type="button" data-tool="crack" data-i18n="tool.crack"></button>
+      <button class="btn" type="button" data-tool="leak" data-i18n="tool.leak"></button>
+      <button class="btn" type="button" data-tool="spall" data-i18n="tool.spall"></button>
+      <button class="btn" type="button" data-tool="lip" data-i18n="tool.lip"></button>
+      <button class="btn" type="button" data-tool="other" data-i18n="tool.other"></button>
+    </div>
+    <div class="nav">
+      <form id="goForm" class="go"><label for="goN" data-i18n="nav.ring"></label><input id="goN" type="number" min="1" inputmode="numeric"><button class="btn" type="submit" data-i18n="nav.go"></button></form>
+      <label class="zoom"><span data-i18n="nav.zoom"></span> <input id="zoom" type="range" min="1.5" max="9" step="0.5" value="4"></label>
+    </div>
+  </div>
+
+  <div class="main">
+    <section class="panel">
+      <div class="scroller" id="scroller"><div class="spacer" id="spacer"><canvas id="map" role="img" aria-label="Ring map"></canvas></div></div>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--accent)"></i><span data-i18n="leg.key"></span></span>
+        <span><i class="sw" style="background:var(--seg-b)"></i><span data-i18n="leg.near"></span></span>
+        <span><i class="sw" style="background:var(--seg)"></i><span data-i18n="leg.others"></span></span>
+        <span><i class="sw" style="background:var(--ghost)"></i><span data-i18n="leg.ghost"></span></span>
+        <span><i class="sw" style="background:var(--type-a)"></i><span data-i18n="leg.concrete"></span></span>
+        <span><i class="sw" style="background:var(--type-b)"></i><span data-i18n="leg.fiber"></span></span>
+        <span data-i18n="leg.short"></span>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="panel box" id="detail" aria-live="polite"></section>
+      <section class="panel box">
+        <h2 data-i18n="pose.title"></h2>
+        <label class="f"><span data-i18n="pose.rfr"></span> <input id="rfr" type="file" accept=".csv"></label>
+        <p class="empty small" id="offset"></p>
+        <form id="addForm" class="box flat">
+          <div class="row2">
+            <label class="f"><span data-i18n="pose.ring"></span> <input id="addN" readonly></label>
+            <label class="f"><span data-i18n="pose.key"></span> <select id="addKey"></select></label>
+          </div>
+          <label class="f"><span data-i18n="pose.date"></span> <input id="addDate" type="date"></label>
+          <button class="btn primary" type="submit" data-i18n="pose.save"></button>
+        </form>
+      </section>
+    </aside>
+  </div>
+
+  <section class="panel">
+    <div class="tablehead">
+      <h2><span data-i18n="reg.title"></span> <small id="count"></small></h2>
+      <div class="switch">
+        <select id="fType" data-i18n-aria="reg.filterType">
+          <option value="" data-i18n="reg.allTypes"></option><option value="crack" data-i18n="tool.crack"></option><option value="leak" data-i18n="tool.leak"></option>
+          <option value="spall" data-i18n="tool.spall"></option><option value="lip" data-i18n="tool.lip"></option><option value="other" data-i18n="tool.other"></option>
+        </select>
+        <select id="fStat" data-i18n-aria="reg.filterStatus">
+          <option value="" data-i18n="reg.allStatus"></option><option value="open" data-i18n="st.open"></option><option value="repair" data-i18n="st.repair"></option><option value="closed" data-i18n="st.closed"></option>
+        </select>
+      </div>
+    </div>
+    <div class="tablewrap"><table><thead><tr>
+      <th data-i18n="col.ring"></th><th data-i18n="col.station"></th><th data-i18n="col.segment"></th><th data-i18n="col.position"></th><th data-i18n="col.type"></th><th data-i18n="col.severity"></th>
+      <th data-i18n="col.length"></th><th data-i18n="col.status"></th><th data-i18n="col.date"></th><th data-i18n="col.by"></th><th data-i18n="col.note"></th><th data-i18n="col.actions"></th>
+    </tr></thead><tbody id="rows"></tbody></table></div>
+  </section>
+
+  <section class="panel exports">
+    <label class="f who"><span data-i18n="exp.author"></span> <input id="author" autocomplete="name"></label>
+    <div class="switch">
+      <button class="btn" id="bPrint" type="button" data-i18n="exp.pdf"></button>
+      <button class="btn" id="bExcel" type="button" data-i18n="exp.excel"></button>
+      <button class="btn" id="bBackup" type="button" data-i18n="exp.backup"></button>
+      <label class="btn"><span data-i18n="exp.restore"></span><input id="restore" type="file" accept=".json" class="vh"></label>
+    </div>
+    <p class="empty small helpline"><span data-i18n="exp.help"></span> <span id="version"></span></p>
+  </section>
+</div>
+
+<dialog id="projDlg">
+  <div class="box">
+    <h2 data-i18n="p.title"></h2>
+    <label class="f"><span data-i18n="p.import"></span> <input id="pImport" type="file" accept=".json"></label>
+    <label class="f"><span data-i18n="p.name"></span> <input id="pName"></label>
+    <div class="row4">
+      <label class="f"><span data-i18n="p.unit"></span> <select id="pUnit"><option value="ft" data-i18n="unit.ft"></option><option value="m" data-i18n="unit.m"></option></select></label>
+      <label class="f"><span data-i18n="p.circ"></span> <input id="pCirc" inputmode="decimal"></label>
+      <label class="f"><span data-i18n="p.taper"></span> <input id="pTaper" inputmode="decimal"></label>
+      <label class="f"><span data-i18n="p.keys"></span> <input id="pKeys" inputmode="numeric"></label>
+    </div>
+    <label class="f"><span data-i18n="p.segs"></span> <input id="pSegs"></label>
+    <label class="f"><span data-i18n="p.types"></span> <textarea id="pTypes" rows="4"></textarea></label>
+    <label class="f"><span data-i18n="p.tunnels"></span> <textarea id="pTunnels" rows="4"></textarea></label>
+    <p class="error" id="pErr" role="alert"></p>
+    <div class="switch">
+      <button class="btn primary" id="pSave" type="button" data-i18n="p.save"></button>
+      <button class="btn" id="pCancel" type="button" data-i18n="p.cancel"></button>
+      <button class="btn" id="pExport" type="button" data-i18n="p.export"></button>
+      <button class="btn danger" id="pDelete" type="button" data-i18n="p.delete"></button>
+    </div>
+  </div>
+</dialog>
+
+<div id="report" class="report"></div>
+<div id="toast" role="status" hidden></div>
+</body>
+</html>

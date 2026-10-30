@@ -1,0 +1,658 @@
+import { Layout, crackLength, makeGeometry, toFt } from './geometry.js';
+import { LEGACY_STATUS, STATUS, TYPES } from './config.js';
+import { mergeRFR, parseRFR, stationFt } from './rfr.js';
+import { store } from './store.js';
+import { drawStrip } from './draw.js';
+import { applyI18n, lenText, prefs, stationText, t as tr } from './i18n.js';
+import { buildReport, defectRow, exportExcel, ringSpan, sortDefects } from './report.js';
+import {
+  FORMAT, TEMPLATE, normalizeProject, parseSegments, parseTunnels, parseTypes, segmentsText, tunnelsText, typesText,
+} from './project.js';
+
+const APP_VERSION = 'v3'; // garder en phase avec VERSION dans sw.js
+const AXIS = 76;
+const TOP = 34;
+const MAP_H = 400;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const today = () => new Date().toISOString().slice(0, 10);
+const message = (err) => (String(err.message).includes('.') && !err.message.includes(' ') ? tr(err.message) : err.message);
+
+const S = { tool: 'view', ringSel: null, sel: null, scale: 4, draft: null, author: '', moving: null };
+let PROJECTS = [];
+let P = null; // projet courant
+let T = null; // tunnel courant
+
+function tunnelState(project, cfg, rings, defects, offsetM) {
+  const geo = makeGeometry(project);
+  const types = project.ringTypes;
+  const widest = Math.max(...Object.values(types).map((x) => x.width));
+  const typeOf = (label) => ({ ...types[label], narrow: types[label].width < widest });
+  const widthOf = (label) => toFt(types[label].width, project.unit);
+  return {
+    ...cfg,
+    key: project.id + '/' + cfg.id,
+    projectName: project.name,
+    geo,
+    typeOf,
+    layout: new Layout(cfg.plan, cfg.total, widthOf),
+    rings: new Map(rings.map((r) => [r.n, r])),
+    defects,
+    offsetM: offsetM ?? cfg.offsetM,
+    get lastRing() {
+      return this.rings.size ? Math.max(...this.rings.keys()) : 0;
+    },
+    station(n) {
+      const r = this.rings.get(n);
+      if (r?.pm != null && this.offsetM != null) return stationText(stationFt(r.pm, this.offsetM));
+      const ref = [...this.rings.values()].find((q) => q.pm != null);
+      if (ref && this.offsetM != null) {
+        return stationText(stationFt(ref.pm, this.offsetM) + this.layout.start[n] - this.layout.start[ref.n]);
+      }
+      return '–';
+    },
+  };
+}
+
+async function loadProject(id) {
+  P = PROJECTS.find((p) => p.id === id) ?? PROJECTS[0];
+  await store.setMeta('project', P.id);
+  $('title').textContent = P.name;
+  $('project').innerHTML = PROJECTS.map((p) => `<option value="${esc(p.id)}"${p.id === P.id ? ' selected' : ''}>${esc(p.name)}</option>`).join('');
+  $('tunnels').innerHTML = P.tunnels.map((t) => `<button class="btn" type="button" data-t="${esc(t.id)}">${esc(t.name)}</button>`).join('');
+  const saved = await store.getMeta('tunnel-' + P.id);
+  await loadTunnel(P.tunnels.some((t) => t.id === saved) ? saved : P.tunnels[0].id);
+}
+
+async function loadTunnel(id) {
+  const cfg = P.tunnels.find((t) => t.id === id);
+  const key = P.id + '/' + id;
+  const defects = (await store.defects(key)).filter((f) => !f.deleted);
+  defects.forEach((f) => (f.stat = LEGACY_STATUS[f.stat] ?? f.stat));
+  T = tunnelState(P, cfg, await store.rings(key), defects, await store.getMeta('offset-' + key));
+  S.ringSel = null;
+  S.sel = null;
+  S.moving = null;
+  await store.setMeta('tunnel-' + P.id, id);
+  document.querySelectorAll('[data-t]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.t === id));
+  resize();
+  refresh();
+  goToFront();
+}
+
+// --- Carte ---------------------------------------------------------------
+const canvas = $('map');
+const scroller = $('scroller');
+const spacer = $('spacer');
+let raf = 0;
+
+function palette() {
+  const s = getComputedStyle(document.documentElement);
+  const v = (n) => s.getPropertyValue(n).trim();
+  return {
+    bg: v('--surface'), fg: v('--fg'), muted: v('--muted'), line: v('--line'), accent: v('--accent'),
+    seg: v('--seg'), segB: v('--seg-b'), segLine: v('--seg-line'), ghost: v('--ghost'),
+    crack: v('--crack'), leak: v('--leak'), spall: v('--spall'), lip: v('--lip'), other: v('--other'),
+    typeA: v('--type-a'), typeB: v('--type-b'), typeU: v('--line'),
+  };
+}
+const colors = palette();
+
+function resize() {
+  if (!T) return;
+  const w = scroller.clientWidth;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.style.width = w + 'px';
+  canvas.style.height = TOP + MAP_H + 6 + 'px';
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round((TOP + MAP_H + 6) * dpr);
+  spacer.style.width = T.layout.length * S.scale + AXIS + 'px';
+  draw();
+}
+
+function draw() {
+  cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(render);
+}
+
+function render() {
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.width / dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, canvas.height / dpr);
+  const fromFt = scroller.scrollLeft / S.scale;
+  drawStrip(ctx, {
+    layout: T.layout, rings: T.rings, defects: T.defects, geo: T.geo, typeOf: T.typeOf,
+    fromFt, toFt: fromFt + (w - AXIS) / S.scale, scale: S.scale, x0: AXIS, top: TOP, H: MAP_H, c: colors,
+    selRing: S.ringSel, selId: S.sel, draft: S.draft,
+  });
+  ctx.fillStyle = colors.bg;
+  ctx.fillRect(0, 0, AXIS, TOP + MAP_H + 6);
+  ctx.font = '500 11px Consolas, monospace';
+  ctx.textAlign = 'left';
+  const [left, right] = prefs.lang === 'fr' ? ['Spring G', 'Spring D'] : ['Spring L', 'Spring R'];
+  const rows = [[-180, 'Invert', '6h'], [-90, left, '9h'], [0, 'Crown', '12h'], [90, right, '3h'], [180, 'Invert', '6h']];
+  rows.forEach(([d, a, b], i) => {
+    const y = TOP + ((d + 180) / 360) * MAP_H + (i === 0 ? 12 : i === 4 ? -16 : 0);
+    ctx.fillStyle = colors.fg;
+    ctx.fillText(a, 6, y);
+    ctx.fillStyle = colors.muted;
+    ctx.fillText(b, 6, y + 13);
+  });
+}
+
+function pos(e) {
+  const b = canvas.getBoundingClientRect();
+  const ft = (e.clientX - b.left - AXIS + scroller.scrollLeft) / S.scale;
+  return {
+    r: T.layout.rOf(Math.max(0, Math.min(T.layout.length - 0.001, ft))),
+    d: Math.max(-180, Math.min(180, ((e.clientY - b.top - TOP) / MAP_H) * 360 - 180)),
+  };
+}
+
+function pick(e) {
+  const b = canvas.getBoundingClientRect();
+  const px = e.clientX - b.left;
+  const py = e.clientY - b.top;
+  const sx = (p) => AXIS + T.layout.ftOf(p.r) * S.scale - scroller.scrollLeft;
+  const sy = (p) => TOP + ((p.d + 180) / 360) * MAP_H;
+  let best = null;
+  let bestD = 14;
+  for (const f of T.defects) {
+    for (let i = 0; i < f.pts.length; i++) {
+      const p = f.pts[i];
+      let dist = Math.hypot(sx(p) - px, sy(p) - py);
+      const q = f.pts[i + 1];
+      if (q) {
+        const [ax, ay, bx, by] = [sx(p), sy(p), sx(q), sy(q)];
+        const l = (bx - ax) ** 2 + (by - ay) ** 2 || 1;
+        const u = Math.max(0, Math.min(1, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / l));
+        dist = Math.hypot(ax + u * (bx - ax) - px, ay + u * (by - ay) - py);
+      }
+      if (dist < bestD) {
+        bestD = dist;
+        best = f;
+      }
+    }
+  }
+  return best;
+}
+
+const isBuilt = (p) => T.rings.has(Math.floor(p.r));
+
+async function saveDefect(f) {
+  f.updatedAt = new Date().toISOString();
+  await store.saveDefect(f);
+}
+
+// Apres un releve on revient en consultation, pour pouvoir toucher les defauts sur la carte.
+async function placeDefect(type, pts) {
+  const moving = T.defects.find((f) => f.id === S.moving);
+  if (moving) {
+    moving.pts = pts;
+    await saveDefect(moving);
+    S.moving = null;
+    S.sel = moving.id;
+    say(tr('msg.moved'));
+  } else {
+    const f = {
+      id: crypto.randomUUID(), tunnel: T.key, type, pts, g: 1, stat: STATUS[0],
+      date: today(), by: S.author, note: '',
+    };
+    await saveDefect(f);
+    T.defects.push(f);
+    S.sel = f.id;
+    say(tr('msg.saved', { type: tr('tool.' + type) }));
+  }
+  S.ringSel = Math.floor(pts[0].r);
+  setTool('view');
+  refresh();
+}
+
+canvas.addEventListener('pointerdown', (e) => {
+  if (S.tool === 'view') return;
+  const p = pos(e);
+  if (!isBuilt(p)) return say(tr('msg.notLaid'));
+  e.preventDefault();
+  if (TYPES[S.tool].line) {
+    S.draft = [p];
+    canvas.setPointerCapture(e.pointerId);
+  } else placeDefect(S.tool, [p]);
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!S.draft) return;
+  S.draft.push(pos(e));
+  draw();
+});
+canvas.addEventListener('pointerup', () => {
+  if (!S.draft) return;
+  const d = S.draft;
+  S.draft = null;
+  draw();
+  if (crackLength(d, T.layout, T.geo.circ) < 0.5) return say(tr('msg.tooShort'));
+  placeDefect('crack', d.filter((_, i) => i % 2 === 0 || i === d.length - 1));
+});
+canvas.addEventListener('pointercancel', () => {
+  S.draft = null;
+  draw();
+});
+canvas.addEventListener('click', (e) => {
+  if (S.tool !== 'view') return;
+  const f = pick(e);
+  if (f) {
+    S.sel = f.id;
+    S.ringSel = ringSpan(f)[0];
+  } else {
+    const n = Math.floor(pos(e).r);
+    S.sel = null;
+    S.ringSel = T.rings.has(n) ? n : null;
+  }
+  draw();
+  detail();
+  table();
+});
+scroller.addEventListener('scroll', draw, { passive: true });
+
+function centerRing(n) {
+  scroller.scrollLeft = T.layout.start[n] * S.scale - (scroller.clientWidth - AXIS) / 2;
+  draw();
+}
+
+function goToFront() {
+  if (T.lastRing) scroller.scrollLeft = T.layout.start[T.lastRing + 1] * S.scale - (scroller.clientWidth - AXIS) * 0.75;
+  else scroller.scrollLeft = 0;
+  draw();
+}
+
+// --- Panneaux ------------------------------------------------------------
+function stats() {
+  const open = T.defects.filter((f) => f.stat !== 'closed').length;
+  const ft = T.defects.filter((f) => f.type === 'crack').reduce((s, f) => s + crackLength(f.pts, T.layout, T.geo.circ), 0);
+  const last = T.lastRing;
+  $('stats').innerHTML = `<div><b>${T.rings.size} / ${T.total}</b><span>${tr('stat.rings')}</span></div>
+    <div><b>${last ? T.station(last) : '–'}</b><span>${tr('stat.front')}</span></div>
+    <div><b>${open}</b><span>${tr('stat.open')}</span></div>
+    <div><b>${lenText(ft)}</b><span>${tr('stat.cracks')}</span></div>`;
+}
+
+function keyOptions(v) {
+  return Array.from({ length: P.keyPositions }, (_, i) => i + 1)
+    .map((k) => `<option value="${k}"${k === v ? ' selected' : ''}>K${k}</option>`).join('');
+}
+
+function ringDetail(r) {
+  const label = T.layout.label(r.n);
+  const n = T.defects.filter((f) => {
+    const [a, b] = ringSpan(f);
+    return r.n >= a && r.n <= b;
+  }).length;
+  return `<h2>${tr('d.ring')} ${r.n}</h2>
+    <dl class="kv"><dt>${tr('col.station')}</dt><dd>${T.station(r.n)}</dd>
+    <dt>${tr('col.type')}</dt><dd>${esc(label)}, ${tr('mat.' + T.typeOf(label).material)}, ${lenText(T.layout.width(r.n))}</dd>
+    <dt>${tr('d.keySet')}</dt><dd>K${r.key}</dd>${r.opt && r.opt !== r.key ? `<dt>${tr('d.keyOpt')}</dt><dd>K${r.opt}</dd>` : ''}
+    <dt>${tr('d.laid')}</dt><dd>${esc(r.date) || '–'}</dd><dt>${tr('d.source')}</dt><dd>${tr(r.source === 'rfr' ? 'src.rfr' : 'src.manual')}</dd>
+    <dt>${tr('d.defects')}</dt><dd>${n}</dd></dl>
+    ${r.source === 'rfr' ? '' : `<label class="f">${tr('d.fixKey')} <select id="rK">${keyOptions(r.key)}</select></label>`}`;
+}
+
+function defectForm(f) {
+  const row = defectRow(f, T);
+  const types = Object.keys(TYPES).filter((k) => !!TYPES[k].line === !!TYPES[f.type].line);
+  const opts = (list, cur, label) => list.map((v) => `<option value="${v}"${v === cur ? ' selected' : ''}>${esc(label(v))}</option>`).join('');
+  return `<h2>${esc(row.type)}</h2>
+    <dl class="kv"><dt>${tr('col.ring')}</dt><dd>${row.rings}</dd><dt>${tr('col.station')}</dt><dd>${row.station}</dd>
+    <dt>${tr('col.segment')}</dt><dd>${esc(row.segment)}</dd><dt>${tr('col.position')}</dt><dd>${row.position}</dd>
+    ${row.lengthText ? `<dt>${tr('col.length')}</dt><dd>${row.lengthText}</dd>` : ''}</dl>
+    ${types.length > 1 ? `<label class="f">${tr('col.type')} <select id="dT">${opts(types, f.type, (k) => tr('tool.' + k))}</select></label>` : ''}
+    <div class="row2"><label class="f">${tr('col.severity')} <select id="dG">${opts([1, 2, 3], f.g, (g) => tr('sev.' + g))}</select></label>
+    <label class="f">${tr('col.status')} <select id="dS">${opts(STATUS, f.stat, (s) => tr('st.' + s))}</select></label></div>
+    <div class="row2"><label class="f">${tr('d.date')} <input id="dD" type="date" value="${esc(f.date)}"></label>
+    <label class="f">${tr('d.by')} <input id="dB" value="${esc(f.by)}"></label></div>
+    <label class="f">${tr('col.note')} <textarea id="dN" rows="2">${esc(f.note)}</textarea></label>
+    <div class="switch"><button class="btn" id="dMove" type="button">${tr(TYPES[f.type].line ? 'd.moveLine' : 'd.movePoint')}</button>
+    <button class="btn danger" id="dDel" type="button">${tr('d.delete')}</button></div>`;
+}
+
+// La suppression est gardee comme une fiche : la fusion ne fait pas revenir le defaut.
+async function deleteDefect(f) {
+  if (!confirm(tr('msg.confirmDelete'))) return;
+  f.deleted = true;
+  await saveDefect(f);
+  T.defects = T.defects.filter((x) => x !== f);
+  if (S.sel === f.id) S.sel = null;
+  refresh();
+  say(tr('msg.deleted'));
+}
+
+function detail() {
+  const f = T.defects.find((x) => x.id === S.sel);
+  const box = $('detail');
+  if (f) {
+    box.innerHTML = defectForm(f);
+    const save = async () => {
+      await saveDefect(f);
+      stats();
+      table();
+      draw();
+    };
+    const bind = (id, apply) => {
+      const e = $(id);
+      if (e) e.onchange = () => { apply(e.value); save(); };
+    };
+    if ($('dT')) $('dT').onchange = (e) => { f.type = e.target.value; save().then(detail); };
+    bind('dG', (v) => (f.g = Number(v)));
+    bind('dS', (v) => (f.stat = v));
+    bind('dD', (v) => (f.date = v));
+    bind('dB', (v) => (f.by = v));
+    bind('dN', (v) => (f.note = v));
+    $('dMove').onclick = () => {
+      S.moving = f.id;
+      setTool(f.type);
+      say(tr(TYPES[f.type].line ? 'msg.lineHint' : 'msg.moveHint'));
+    };
+    $('dDel').onclick = () => deleteDefect(f);
+    return;
+  }
+  const r = T.rings.get(S.ringSel);
+  if (r) {
+    box.innerHTML = ringDetail(r);
+    const k = $('rK');
+    if (k) k.onchange = async (e) => {
+      r.key = Number(e.target.value);
+      r.updatedAt = new Date().toISOString();
+      await store.saveRings([r]);
+      draw();
+      table();
+      say(tr('msg.keyFixed'));
+    };
+    return;
+  }
+  box.innerHTML = `<h2>${tr('d.ring')}</h2><p class="empty">${tr('d.ringEmpty')}</p>`;
+}
+
+function table() {
+  const a = $('fType').value;
+  const b = $('fStat').value;
+  const list = sortDefects(T.defects).filter((f) => (!a || f.type === a) && (!b || f.stat === b));
+  $('count').textContent = tr(list.length > 1 ? 'reg.countN' : 'reg.count1', { n: list.length });
+  $('rows').innerHTML = list.map((f) => {
+    const r = defectRow(f, T);
+    return `<tr data-id="${esc(f.id)}" class="${f.id === S.sel ? 'on' : ''}"><td>${r.rings}</td><td>${r.station}</td><td>${esc(r.segment)}</td><td>${r.position}</td>
+      <td><i class="dot" style="background:var(--${f.type})"></i>${esc(r.type)}</td>
+      <td><span class="pill g${f.g}">${esc(r.severity)}</span></td><td>${r.lengthText ?? '–'}</td><td>${esc(r.status)}</td><td>${esc(r.date)}</td><td>${esc(r.by)}</td><td>${esc(r.note)}</td>
+      <td class="acts"><button class="btn mini" type="button" data-act="edit">${tr('act.edit')}</button><button class="btn mini danger" type="button" data-act="delete">${tr('act.delete')}</button></td></tr>`;
+  }).join('') || `<tr><td colspan="12" class="empty">${tr('reg.empty')}</td></tr>`;
+}
+
+function selectDefect(f) {
+  S.sel = f.id;
+  S.ringSel = ringSpan(f)[0];
+  setTool('view');
+  centerRing(S.ringSel);
+  detail();
+  table();
+  if (innerWidth <= 900) $('detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+$('rows').addEventListener('click', (e) => {
+  const row = e.target.closest('tr[data-id]');
+  if (!row) return;
+  const f = T.defects.find((x) => x.id === row.dataset.id);
+  if (e.target.closest('[data-act="delete"]')) deleteDefect(f);
+  else selectDefect(f);
+});
+
+function poseForm() {
+  const next = T.lastRing + 1;
+  $('addN').value = next <= T.total ? next : tr('pose.done');
+  $('addKey').innerHTML = keyOptions(P.keyPositions);
+  $('addDate').value = today();
+  $('offset').textContent = T.offsetM == null ? tr('pose.noOffset') : tr('pose.offset', { v: T.offsetM });
+}
+
+function refresh() {
+  stats();
+  detail();
+  table();
+  poseForm();
+  draw();
+}
+
+function setTool(k) {
+  S.tool = k;
+  if (k === 'view') S.moving = null;
+  document.querySelectorAll('[data-tool]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.tool === k));
+  canvas.classList.toggle('drawing', k !== 'view');
+}
+
+let toastTimer;
+function say(msg) {
+  const e = $('toast');
+  e.textContent = msg;
+  e.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (e.hidden = true), 3500);
+}
+
+function saveFile(name, text, type) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+// --- Ecran Projet --------------------------------------------------------
+const dlg = $('projDlg');
+const fileName = (p, suffix) => `${p.name.replace(/[^\w -]+/g, '_')}${suffix}`;
+
+function fillProjectForm(p) {
+  $('pName').value = p.name;
+  $('pUnit').value = p.unit;
+  $('pCirc').value = p.circumference;
+  $('pTaper').value = p.keyTaper;
+  $('pKeys').value = p.keyPositions;
+  $('pSegs').value = segmentsText(p);
+  $('pTypes').value = typesText(p);
+  $('pTunnels').value = tunnelsText(p);
+  $('pErr').textContent = '';
+}
+
+function readProjectForm() {
+  return normalizeProject({
+    ...(dlg.dataset.id ? { id: dlg.dataset.id, rfr: P?.rfr } : {}),
+    format: FORMAT, name: $('pName').value, unit: $('pUnit').value,
+    circumference: $('pCirc').value, keyTaper: $('pTaper').value, keyPositions: $('pKeys').value,
+    segments: parseSegments($('pSegs').value), ringTypes: parseTypes($('pTypes').value), tunnels: parseTunnels($('pTunnels').value),
+  });
+}
+
+function openProject(p) {
+  dlg.dataset.id = p?.id ?? '';
+  fillProjectForm(p ?? TEMPLATE);
+  $('pDelete').hidden = !p;
+  $('pExport').hidden = !p;
+  $('pCancel').hidden = !P;
+  dlg.showModal();
+}
+
+async function addProject(p) {
+  const i = PROJECTS.findIndex((x) => x.id === p.id);
+  if (i >= 0) PROJECTS[i] = p;
+  else PROJECTS.push(p);
+  await store.setMeta('projects', PROJECTS);
+  await loadProject(p.id);
+}
+
+$('pSave').onclick = async () => {
+  try {
+    const p = readProjectForm();
+    dlg.close();
+    await addProject(p);
+    say(tr('msg.projectSaved'));
+  } catch (err) {
+    $('pErr').textContent = message(err);
+  }
+};
+$('pCancel').onclick = () => dlg.close();
+$('pExport').onclick = () => {
+  try {
+    saveFile(fileName(readProjectForm(), '.ringproject.json'), JSON.stringify(readProjectForm(), null, 2), 'application/json');
+  } catch (err) {
+    $('pErr').textContent = message(err);
+  }
+};
+$('pDelete').onclick = async () => {
+  if (!confirm(tr('msg.confirmProject', { p: P.name }))) return;
+  await store.deleteProject(P.id);
+  PROJECTS = PROJECTS.filter((x) => x !== P);
+  await store.setMeta('projects', PROJECTS);
+  P = null;
+  T = null;
+  dlg.close();
+  if (PROJECTS.length) await loadProject(PROJECTS[0].id);
+  else openProject(null);
+};
+$('pImport').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const p = normalizeProject(JSON.parse(await file.text()));
+    dlg.close();
+    await addProject(p);
+    say(tr('msg.projectSaved'));
+  } catch (err) {
+    $('pErr').textContent = err instanceof SyntaxError ? tr('err.notProject') : message(err);
+  }
+});
+$('bProject').onclick = () => openProject(P);
+$('bNewProject').onclick = () => openProject(null);
+$('project').onchange = (e) => loadProject(e.target.value);
+
+// --- Actions -------------------------------------------------------------
+document.querySelectorAll('[data-tool]').forEach((b) => (b.onclick = () => {
+  S.moving = null;
+  setTool(b.dataset.tool);
+}));
+$('tunnels').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-t]');
+  if (b) loadTunnel(b.dataset.t);
+});
+$('fType').onchange = table;
+$('fStat').onchange = table;
+$('lang').onchange = async (e) => {
+  prefs.lang = e.target.value;
+  await store.setMeta('lang', prefs.lang);
+  applyI18n();
+  if (T) refresh();
+};
+$('unit').onchange = async (e) => {
+  prefs.unit = e.target.value;
+  await store.setMeta('unit', prefs.unit);
+  if (T) refresh();
+};
+$('zoom').oninput = (e) => {
+  const centre = (scroller.scrollLeft + (scroller.clientWidth - AXIS) / 2) / S.scale;
+  S.scale = Number(e.target.value);
+  spacer.style.width = T.layout.length * S.scale + AXIS + 'px';
+  scroller.scrollLeft = centre * S.scale - (scroller.clientWidth - AXIS) / 2;
+  draw();
+};
+$('goForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const n = Number($('goN').value);
+  if (!(n >= 1 && n <= T.total)) return say(tr('msg.ringLimit', { n: T.total }));
+  S.ringSel = T.rings.has(n) ? n : null;
+  S.sel = null;
+  centerRing(n);
+  detail();
+});
+$('author').onchange = (e) => {
+  S.author = e.target.value.trim();
+  store.setMeta('author', S.author);
+};
+$('addForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const n = T.lastRing + 1;
+  if (n > T.total) return;
+  const r = {
+    tunnel: T.key, n, key: Number($('addKey').value), opt: 0, pm: null,
+    date: $('addDate').value, by: S.author, source: 'saisie', updatedAt: new Date().toISOString(),
+  };
+  await store.saveRings([r]);
+  T.rings.set(n, r);
+  S.ringSel = n;
+  S.sel = null;
+  refresh();
+  goToFront();
+  say(tr('msg.ringSaved', { n, k: r.key }));
+});
+$('rfr').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const parsed = parseRFR(await file.text(), P.rfr, P.keyPositions);
+    if (parsed.rings[parsed.rings.length - 1].n > T.total) throw new Error(tr('msg.rfrTooLong', { n: T.total }));
+    const m = mergeRFR([...T.rings.values()], parsed, T.key, new Date().toISOString());
+    await store.saveRings(m.rings);
+    m.rings.forEach((r) => T.rings.set(r.n, r));
+    if (parsed.offsetM != null) {
+      T.offsetM = parsed.offsetM;
+      await store.setMeta('offset-' + T.key, parsed.offsetM);
+    }
+    refresh();
+    goToFront();
+    say(tr('msg.rfrRead', { n: m.rings.length, a: m.added }) + (m.corrected.length ? tr('msg.rfrFixed', { n: m.corrected.length }) : ''));
+  } catch (err) {
+    say(message(err));
+  }
+});
+$('bPrint').onclick = () => {
+  buildReport($('report'), T, S.author);
+  window.print();
+};
+$('bExcel').onclick = () => exportExcel(T);
+$('bBackup').onclick = async () => {
+  const data = await store.exportProject(P);
+  saveFile(fileName(P, ` ${S.author || 'data'} ${today()}.json`), JSON.stringify(data), 'application/json');
+  say(tr('msg.backup'));
+};
+$('restore').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    if (data?.app !== 'ring-mapping' || !data.project) throw new Error('err.notData');
+    const project = normalizeProject(data.project);
+    const n = await store.importData(data);
+    await addProject(PROJECTS.find((p) => p.id === project.id) ?? project);
+    say(tr('msg.restored', { r: n.rings, d: n.defects }));
+  } catch (err) {
+    say(err instanceof SyntaxError ? tr('err.notData') : message(err));
+  }
+});
+window.addEventListener('resize', resize);
+
+(async () => {
+  prefs.lang = await store.getMeta('lang', 'fr');
+  prefs.unit = await store.getMeta('unit', 'ft');
+  $('lang').value = prefs.lang;
+  $('unit').value = prefs.unit;
+  $('version').textContent = APP_VERSION;
+  applyI18n();
+  S.author = await store.getMeta('author', '');
+  $('author').value = S.author;
+  setTool('view');
+  PROJECTS = await store.getMeta('projects', []);
+  if (PROJECTS.length) await loadProject(await store.getMeta('project'));
+  else openProject(null);
+  if ('serviceWorker' in navigator) {
+    const updating = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => updating && say(tr('msg.updated', { v: APP_VERSION })));
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+})();

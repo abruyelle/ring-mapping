@@ -1,0 +1,22 @@
+{
+  "format": "ring-mapping-project",
+  "version": 1,
+  "id": "demo",
+  "name": "Projet exemple",
+  "unit": "ft",
+  "circumference": 60,
+  "keyTaper": 0.5,
+  "keyPositions": 12,
+  "segments": [
+    { "name": "K", "deg": 60 }, { "name": "D", "deg": 60 }, { "name": "E", "deg": 60 },
+    { "name": "A", "deg": 60 }, { "name": "B", "deg": 60 }, { "name": "C", "deg": 60 }
+  ],
+  "ringTypes": {
+    "L": { "material": "concrete", "width": 5 },
+    "M": { "material": "fiber", "width": 4 }
+  },
+  "tunnels": [
+    { "id": "W", "name": "Ouest", "total": 300, "offsetM": 1000, "plan": [[1, "L"], [100, "M"], [120, "L"]] },
+    { "id": "E", "name": "Est", "total": 400, "offsetM": null, "plan": [[1, "L"]] }
+  ]
+}
