@@ -37,6 +37,7 @@
     <div class="tools" role="group" data-i18n-aria="aria.tool">
       <button class="btn" type="button" data-tool="view" data-i18n="tool.view"></button>
       <button class="btn" type="button" data-tool="crack" data-i18n="tool.crack"></button>
+      <button class="btn" type="button" data-tool="zone" data-i18n="tool.zone"></button>
       <button class="btn" type="button" data-tool="leak" data-i18n="tool.leak"></button>
       <button class="btn" type="button" data-tool="spall" data-i18n="tool.spall"></button>
       <button class="btn" type="button" data-tool="lip" data-i18n="tool.lip"></button>
@@ -85,7 +86,7 @@
       <h2><span data-i18n="reg.title"></span> <small id="count"></small></h2>
       <div class="switch">
         <select id="fType" data-i18n-aria="reg.filterType">
-          <option value="" data-i18n="reg.allTypes"></option><option value="crack" data-i18n="tool.crack"></option><option value="leak" data-i18n="tool.leak"></option>
+          <option value="" data-i18n="reg.allTypes"></option><option value="crack" data-i18n="tool.crack"></option><option value="zone" data-i18n="tool.zone"></option><option value="leak" data-i18n="tool.leak"></option>
           <option value="spall" data-i18n="tool.spall"></option><option value="lip" data-i18n="tool.lip"></option><option value="other" data-i18n="tool.other"></option>
         </select>
         <select id="fStat" data-i18n-aria="reg.filterStatus">
@@ -95,7 +96,7 @@
     </div>
     <div class="tablewrap"><table><thead><tr>
       <th data-i18n="col.ring"></th><th data-i18n="col.station"></th><th data-i18n="col.segment"></th><th data-i18n="col.position"></th><th data-i18n="col.type"></th><th data-i18n="col.severity"></th>
-      <th data-i18n="col.length"></th><th data-i18n="col.status"></th><th data-i18n="col.date"></th><th data-i18n="col.by"></th><th data-i18n="col.note"></th><th data-i18n="col.actions"></th>
+      <th data-i18n="col.length"></th><th data-i18n="col.status"></th><th data-i18n="col.photos"></th><th data-i18n="col.date"></th><th data-i18n="col.by"></th><th data-i18n="col.note"></th><th data-i18n="col.actions"></th>
     </tr></thead><tbody id="rows"></tbody></table></div>
   </section>
 
@@ -116,6 +117,30 @@
   <button type="button" data-screen="ring" data-i18n="tab.ring"></button>
   <button type="button" data-screen="def" data-i18n="tab.def"></button>
 </nav>
+
+<section id="v3d" hidden>
+  <div class="v3d-bar">
+    <button class="btn" id="v3dClose" type="button" data-i18n="v3d.close"></button>
+    <button class="btn" id="v3dPrev" type="button" data-i18n-aria="v3d.prev">&#8593;</button>
+    <strong id="v3dTitle"></strong>
+    <button class="btn" id="v3dNext" type="button" data-i18n-aria="v3d.next">&#8595;</button>
+    <div class="tools" role="group" data-i18n-aria="aria.tool">
+      <button class="btn" type="button" data-tool="view" data-i18n="tool.view"></button>
+      <button class="btn" type="button" data-tool="crack" data-i18n="tool.crack"></button>
+      <button class="btn" type="button" data-tool="zone" data-i18n="tool.zone"></button>
+      <button class="btn" type="button" data-tool="leak" data-i18n="tool.leak"></button>
+      <button class="btn" type="button" data-tool="spall" data-i18n="tool.spall"></button>
+      <button class="btn" type="button" data-tool="lip" data-i18n="tool.lip"></button>
+      <button class="btn" type="button" data-tool="other" data-i18n="tool.other"></button>
+    </div>
+  </div>
+  <div class="v3d-main">
+    <div class="v3d-view"><canvas id="c3d"></canvas><p class="v3d-help" data-i18n="v3d.help"></p></div>
+    <div id="side3d"></div>
+  </div>
+</section>
+
+<dialog id="photoDlg"><img id="bigPhoto" alt=""></dialog>
 
 <dialog id="projDlg">
   <div class="box">

@@ -57,6 +57,10 @@ export const store = {
     mem.meta.set(k, v);
   },
   async deleteProject() {},
+  async photosOf() {
+    return [];
+  },
+  async savePhoto() {},
   async exportProject(project) {
     return { app: 'ring-mapping', version: 1, exportedAt: new Date().toISOString(), project, rings: mem.rings, defects: mem.defects, meta: [] };
   },

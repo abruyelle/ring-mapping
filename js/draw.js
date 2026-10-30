@@ -2,12 +2,13 @@
 export const LIGHT = {
   bg: '#FFFFFF', fg: '#23282D', muted: '#5C656D', line: '#CDD2D6', accent: '#E8541E',
   seg: '#D7DBDE', segB: '#BEC5CA', segLine: '#7D868D', ghost: '#ECEEF0',
-  crack: '#C41E3A', leak: '#1668C7', spall: '#7A3FB5', lip: '#0E7C66', other: '#8A6D00',
+  crack: '#C41E3A', zone: '#D9480F', leak: '#1668C7', spall: '#7A3FB5', lip: '#0E7C66', other: '#8A6D00',
   typeA: '#7D868D', typeB: '#0E8C8C', typeU: '#CDD2D6',
 };
 
 export function drawStrip(ctx, o) {
   const { layout, rings, defects, fromFt, toFt, scale, x0, top, H, c, geo, typeOf } = o;
+  const k = o.k ?? 1; // agrandit traits et textes pour la texture 3D
   const X = (ft) => x0 + (ft - fromFt) * scale;
   const Y = (d) => top + ((d + 180) / 360) * H;
   const a = layout.ringAtFt(Math.max(0, fromFt));
@@ -34,7 +35,7 @@ export function drawStrip(ctx, o) {
       ctx.fillText(String(n), (xa + xb) / 2, top - 14);
     }
     const ring = rings.get(n);
-    if (ring) drawRing(ctx, geo, ring.key, xa, xb, Y, top, H, c, pxRing);
+    if (ring) drawRing(ctx, geo, ring.key, xa, xb, Y, top, H, c, pxRing, k);
     else {
       ctx.fillStyle = c.ghost;
       ctx.fillRect(xa, top, xb - xa, H);
@@ -61,11 +62,11 @@ export function drawStrip(ctx, o) {
 
   if (o.selRing && o.selRing >= a && o.selRing <= b) {
     ctx.strokeStyle = c.fg;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2 * k;
     ctx.strokeRect(X(layout.start[o.selRing]), top, (layout.start[o.selRing + 1] - layout.start[o.selRing]) * scale, H);
   }
 
-  for (const f of defects) drawDefect(ctx, f, f.id === o.selId, layout, X, Y, c);
+  for (const f of defects) drawDefect(ctx, f, f.id === o.selId, layout, X, Y, c, k);
   if (o.draft?.length > 1) drawCrack(ctx, o.draft, 2, c.crack, layout, X, Y);
   ctx.restore();
 }
@@ -76,7 +77,7 @@ function poly(ctx, pts) {
   ctx.closePath();
 }
 
-function drawRing(ctx, geo, key, xa, xb, Y, top, H, c, pxRing) {
+function drawRing(ctx, geo, key, xa, xb, Y, top, H, c, pxRing, k) {
   const b = geo.bounds(key);
   const O = geo.offsets;
   const n = geo.n;
@@ -111,8 +112,17 @@ function drawRing(ctx, geo, key, xa, xb, Y, top, H, c, pxRing) {
       }
       if (pxRing >= 26) {
         ctx.fillStyle = i === 0 ? c.bg : c.fg;
-        ctx.font = '500 10px Consolas, monospace';
-        ctx.fillText(geo.names[i], (xa + xb) / 2, ym + 14);
+        if (k > 1) {
+          // Vu de l'interieur, le tunnel defile vers le bas de l'ecran : le texte doit suivre.
+          ctx.save();
+          ctx.transform(0, 1, 1, 0, (xa + xb) / 2 + 14 * k, ym);
+          ctx.font = `500 ${15 * k}px Consolas, monospace`;
+          ctx.fillText(geo.names[i], 0, 0);
+          ctx.restore();
+        } else {
+          ctx.font = '500 10px Consolas, monospace';
+          ctx.fillText(geo.names[i], (xa + xb) / 2, ym + 14);
+        }
       }
     }
   }
@@ -134,31 +144,42 @@ function drawCrack(ctx, pts, width, color, layout, X, Y) {
   ctx.stroke();
 }
 
-function drawDefect(ctx, f, selected, layout, X, Y, c) {
+function drawDefect(ctx, f, selected, layout, X, Y, c, k) {
+  if (f.type === 'zone') {
+    poly(ctx, f.pts.map((p) => [X(layout.ftOf(p.r)), Y(p.d)]));
+    ctx.fillStyle = c.zone;
+    ctx.globalAlpha = selected ? 0.45 : 0.28;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = selected ? c.fg : c.zone;
+    ctx.lineWidth = (selected ? 2.5 : 1.5) * k;
+    ctx.stroke();
+    return;
+  }
   if (f.type === 'crack') {
     if (selected) {
       ctx.globalAlpha = 0.3;
-      drawCrack(ctx, f.pts, 8, c.fg, layout, X, Y);
+      drawCrack(ctx, f.pts, 8 * k, c.fg, layout, X, Y);
       ctx.globalAlpha = 1;
     }
-    drawCrack(ctx, f.pts, 1 + f.g * 0.7, c.crack, layout, X, Y);
+    drawCrack(ctx, f.pts, (1 + f.g * 0.7) * k, c.crack, layout, X, Y);
     return;
   }
   const x = X(layout.ftOf(f.pts[0].r));
   const y = Y(f.pts[0].d);
-  const s = 4 + f.g * 1.5;
+  const s = (4 + f.g * 1.5) * k;
   if (selected) {
     ctx.strokeStyle = c.fg;
-    ctx.lineWidth = 2;
-    ctx.setLineDash([4, 3]);
+    ctx.lineWidth = 2 * k;
+    ctx.setLineDash([4 * k, 3 * k]);
     ctx.beginPath();
-    ctx.arc(x, y, s + 6, 0, Math.PI * 2);
+    ctx.arc(x, y, s + 6 * k, 0, Math.PI * 2);
     ctx.stroke();
     ctx.setLineDash([]);
   }
   ctx.fillStyle = c[f.type];
   ctx.strokeStyle = c.bg;
-  ctx.lineWidth = 1;
+  ctx.lineWidth = k;
   if (f.type === 'leak') {
     ctx.beginPath();
     ctx.arc(x, y, s, 0, Math.PI * 2);

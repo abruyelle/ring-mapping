@@ -4,6 +4,9 @@ import { fmtLen, fmtStation, lenValue } from './geometry.js';
 export const prefs = { lang: 'fr', unit: 'ft' };
 
 const FR = {
+  'tool.zone': 'Zone', 'col.photos': 'Photos', 'd.view3d': 'Vue 3D', 'd.addPhotos': 'Ajouter des photos', 'r.photos': 'Photos des défauts',
+  'v3d.close': 'Fermer', 'v3d.prev': 'Anneau précédent', 'v3d.next': 'Anneau suivant', 'v3d.help': 'Vue depuis l’intérieur, vers l’avancement : le haut de l’écran est l’anneau précédent. Glissez pour regarder autour, pincez ou utilisez la molette pour zoomer. Avec un outil, tracez sur le segment ; deux doigts déplacent la vue.',
+  'msg.no3d': 'La vue 3D n’est pas disponible sur cet appareil', 'msg.photoAdded': 'Photos ajoutées : {n}', 'msg.photoFail': 'Cette image n’a pas pu être lue', 'msg.confirmPhoto': 'Supprimer cette photo ?',
   'tab.aria': 'Écrans', 'tab.data': 'Données', 'tab.ring': 'Anneaux', 'tab.def': 'Défauts',
   'app.note': 'Anneaux dépliés autour de la crown, clé en orange. Les données restent sur cet appareil.',
   'aria.tunnel': 'Tunnel', 'aria.tool': 'Outil',
@@ -30,10 +33,10 @@ const FR = {
   'd.ringEmpty': 'Touchez un anneau ou un défaut sur le développé pour voir sa fiche.', 'd.ring': 'Anneau',
   'd.keySet': 'Clé posée', 'd.keyOpt': 'Clé proposée', 'd.laid': 'Posé le', 'd.source': 'Source', 'd.defects': 'Défauts',
   'd.fixKey': 'Corriger la clé', 'src.rfr': 'Guidage', 'src.manual': 'Saisie',
-  'd.date': 'Constaté le', 'd.by': 'Par', 'd.moveLine': 'Redessiner la fissure', 'd.movePoint': 'Déplacer sur la carte', 'd.delete': 'Supprimer ce défaut',
+  'd.date': 'Constaté le', 'd.by': 'Par', 'd.moveLine': 'Redessiner sur la carte', 'd.movePoint': 'Déplacer sur la carte', 'd.delete': 'Supprimer ce défaut',
   'msg.notLaid': 'Cet anneau n’est pas encore posé', 'msg.saved': 'Relevé enregistré ({type}), complétez sa fiche',
   'msg.moved': 'Position modifiée', 'msg.moveHint': 'Touchez la carte pour indiquer la nouvelle position',
-  'msg.lineHint': 'Tracez la nouvelle fissure sur la carte', 'msg.tooShort': 'Tracez un trait plus long pour dessiner une fissure',
+  'msg.lineHint': 'Tracez le nouveau tracé sur la carte', 'msg.tooShort': 'Tracez un trait plus long',
   'msg.confirmDelete': 'Supprimer définitivement ce défaut ?', 'msg.deleted': 'Défaut supprimé', 'msg.keyFixed': 'Clé corrigée',
   'msg.ringLimit': 'Ce tunnel compte {n} anneaux', 'msg.ringSaved': 'Anneau {n} enregistré, clé K{k}',
   'msg.rfrTooLong': 'Ce fichier dépasse les {n} anneaux de ce tunnel : vérifiez le tunnel choisi',
@@ -55,6 +58,9 @@ const FR = {
 };
 
 const EN = {
+  'tool.zone': 'Zone', 'col.photos': 'Photos', 'd.view3d': '3D view', 'd.addPhotos': 'Add photos', 'r.photos': 'Defect photos',
+  'v3d.close': 'Close', 'v3d.prev': 'Previous ring', 'v3d.next': 'Next ring', 'v3d.help': 'View from inside, facing the drive direction: the top of the screen is the previous ring. Drag to look around, pinch or use the wheel to zoom. With a tool, draw on the segment; two fingers move the view.',
+  'msg.no3d': '3D view is not available on this device', 'msg.photoAdded': 'Photos added: {n}', 'msg.photoFail': 'This image could not be read', 'msg.confirmPhoto': 'Delete this photo?',
   'tab.aria': 'Screens', 'tab.data': 'Data', 'tab.ring': 'Rings', 'tab.def': 'Defects',
   'app.note': 'Rings unrolled around the crown, key in orange. Data stays on this device.',
   'aria.tunnel': 'Tunnel', 'aria.tool': 'Tool',
@@ -81,10 +87,10 @@ const EN = {
   'd.ringEmpty': 'Tap a ring or a defect on the map to open its record.', 'd.ring': 'Ring',
   'd.keySet': 'Key as built', 'd.keyOpt': 'Proposed key', 'd.laid': 'Built on', 'd.source': 'Source', 'd.defects': 'Defects',
   'd.fixKey': 'Correct the key', 'src.rfr': 'Guidance', 'src.manual': 'Manual',
-  'd.date': 'Found on', 'd.by': 'By', 'd.moveLine': 'Redraw the crack', 'd.movePoint': 'Move on the map', 'd.delete': 'Delete this defect',
+  'd.date': 'Found on', 'd.by': 'By', 'd.moveLine': 'Redraw on the map', 'd.movePoint': 'Move on the map', 'd.delete': 'Delete this defect',
   'msg.notLaid': 'This ring is not built yet', 'msg.saved': '{type} saved, complete its record',
   'msg.moved': 'Position updated', 'msg.moveHint': 'Tap the map to set the new position',
-  'msg.lineHint': 'Draw the new crack on the map', 'msg.tooShort': 'Draw a longer line to record a crack',
+  'msg.lineHint': 'Draw the new outline on the map', 'msg.tooShort': 'Draw a longer line',
   'msg.confirmDelete': 'Permanently delete this defect?', 'msg.deleted': 'Defect deleted', 'msg.keyFixed': 'Key corrected',
   'msg.ringLimit': 'This tunnel has {n} rings', 'msg.ringSaved': 'Ring {n} saved, key K{k}',
   'msg.rfrTooLong': 'This file goes past the {n} rings of this tunnel: check the selected tunnel',

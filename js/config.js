@@ -1,6 +1,7 @@
 // Listes communes a tous les projets. Libelles dans js/i18n.js (tool.*, sev.*, st.*).
 export const TYPES = {
   crack: { line: true },
+  zone: { line: true, closed: true },
   leak: {},
   spall: {},
   lip: {},

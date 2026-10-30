@@ -13,7 +13,7 @@ const URL_APP = `http://localhost:${PORT}/`;
 
 const server = spawn(process.execPath, ['serve.mjs'], { env: { ...process.env, PORT }, stdio: 'ignore' });
 await new Promise((r) => setTimeout(r, 700));
-const browser = await chromium.launch({ channel: 'msedge', headless: true });
+const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const ctx = await browser.newContext({ viewport: { width: 1360, height: 950 }, acceptDownloads: true });
 const page = await ctx.newPage();
 const errors = [];
@@ -35,7 +35,7 @@ try {
   assert.match(await page.textContent('#pErr'), /360/);
   await page.fill('#pSegs', 'K:90, A:90, B:90, C:90');
   await page.click('#pSave');
-  await page.waitForFunction(() => document.querySelector('#title').textContent === 'Chantier test');
+  await page.waitForFunction(() => document.querySelector('#stats b')?.textContent.includes('/ 1000'));
   assert.match(await statText(), /0 \/ 1000/);
 
   // Deuxieme projet par fichier.
@@ -172,6 +172,15 @@ try {
   await p.click('#tabs [data-screen="ring"]');
   await p.waitForTimeout(150);
   assert.ok(Math.abs(await p.evaluate(() => document.getElementById('scroller').scrollLeft) - kept) < 400, 'position conservee');
+  await p.fill('#goN', '150');
+  await p.click('#goForm button');
+  await p.click('#d3d');
+  await p.waitForSelector('#v3d:not([hidden])');
+  await p.waitForTimeout(600);
+  assert.ok(await p.evaluate(() => [...document.querySelectorAll('#v3d .v3d-main, #v3d #detail, #v3d .v3d-bar')].every((e) => e.getBoundingClientRect().right <= innerWidth + 0.5)), 'debordement vue 3D');
+  assert.equal(await p.locator('#d3d').count(), 0);
+  await p.screenshot({ path: join(out, '6-3d-tel.png') });
+  await p.click('#v3dClose');
 
   const tablet = await browser.newContext({ viewport: { width: 820, height: 1180 }, hasTouch: true });
   const pt = await tablet.newPage();
@@ -182,6 +191,68 @@ try {
   await pt.waitForTimeout(200);
   assert.ok(await pt.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'pas de debordement tablette');
   await pt.screenshot({ path: join(out, '5-tablette.png') });
+
+  // Vue 3D, zone tracee sur le segment, photos, rapport et echange entre appareils.
+  const c3 = await browser.newContext({ viewport: { width: 1360, height: 950 }, acceptDownloads: true });
+  const q = await c3.newPage();
+  q.on('pageerror', (e) => errors.push(e.message));
+  q.on('dialog', (d) => d.accept());
+  await q.goto(URL_APP);
+  await q.waitForSelector('#projDlg[open]');
+  await q.setInputFiles('#pImport', projectFile);
+  await q.waitForFunction(() => !document.querySelector('#projDlg').open);
+  await q.setInputFiles('#rfr', rfr);
+  await q.waitForFunction(() => !document.querySelector('#stats b').textContent.startsWith('0 /'));
+  await q.fill('#goN', '100');
+  await q.click('#goForm button');
+  await q.waitForFunction(() => document.querySelector('#detail').textContent.includes('Anneau 100'));
+  await q.click('#d3d');
+  await q.waitForSelector('#v3d:not([hidden])');
+  await q.waitForTimeout(600);
+  await q.screenshot({ path: join(out, '6-3d.png') });
+  const b3 = await q.locator('#c3d').boundingBox();
+  const [cx, cy] = [b3.x + b3.width / 2, b3.y + b3.height / 2];
+  await q.click('#v3d [data-tool="zone"]');
+  await q.mouse.move(cx - 60, cy - 40);
+  await q.mouse.down();
+  for (const [x, y] of [[50, -45], [70, 40], [-50, 50], [-60, -30]]) await q.mouse.move(cx + x, cy + y, { steps: 5 });
+  await q.mouse.up();
+  await rowCount(1, q);
+  assert.match(await q.textContent('#rows'), /Zone/);
+  const cells = await q.locator('#rows tr').first().locator('td').allTextContents();
+  assert.equal(cells[0], '100', 'zone sur l anneau vise');
+  assert.match(cells[3], /^(11h|12h|1h)$/, 'zone a la crown, ou regarde la camera');
+  await q.setInputFiles('#dPhoto', ['icon-192.png', 'icon-512.png']);
+  await q.waitForFunction(() => document.querySelectorAll('#dThumbs img').length === 2);
+  await q.waitForTimeout(400);
+  await q.screenshot({ path: join(out, '6-3d-zone.png') });
+  await q.click('#dThumbs img');
+  await q.waitForSelector('#photoDlg[open]');
+  await q.click('#photoDlg');
+  await q.click('#v3dNext');
+  await q.waitForFunction(() => document.querySelector('#v3dTitle').textContent.includes('101'));
+  await q.click('#v3dClose');
+  await q.waitForFunction(() => document.querySelector('#v3d').hidden);
+  assert.ok(await q.locator('.side #detail').count());
+  await q.evaluate(() => { window.print = () => {}; });
+  await q.click('#bPrint');
+  await q.waitForFunction(() => document.querySelectorAll('#report .r-photos img').length === 2);
+  await q.pdf({ path: join(out, 'rapport-photos.pdf'), landscape: true, printBackground: true });
+  await q.emulateMedia({ media: 'print' });
+  await q.screenshot({ path: join(out, '6-rapport.png'), fullPage: true });
+  await q.emulateMedia({ media: 'screen' });
+  const [dl3] = await Promise.all([q.waitForEvent('download'), q.click('#bBackup')]);
+  await dl3.saveAs(join(out, 'data-photos.json'));
+  const c4 = await browser.newContext({ viewport: { width: 1200, height: 800 } });
+  const r = await c4.newPage();
+  await r.goto(URL_APP);
+  await r.waitForSelector('#projDlg[open]');
+  await r.setInputFiles('#pImport', projectFile);
+  await r.waitForFunction(() => !document.querySelector('#projDlg').open);
+  await r.setInputFiles('#restore', join(out, 'data-photos.json'));
+  await rowCount(1, r);
+  await r.click('#rows [data-act="edit"]');
+  await r.waitForFunction(() => document.querySelectorAll('#dThumbs img').length === 2);
 
   assert.deepEqual(errors, []);
   console.log('E2E OK');

@@ -5,11 +5,13 @@ import { store } from './store.js';
 import { drawStrip } from './draw.js';
 import { applyI18n, lenText, prefs, stationText, t as tr } from './i18n.js';
 import { buildReport, defectRow, exportExcel, ringSpan, sortDefects } from './report.js';
+import { Ring3D } from './view3d.js';
+import { compressImage } from './photos.js';
 import {
   FORMAT, TEMPLATE, normalizeProject, parseSegments, parseTunnels, parseTypes, segmentsText, tunnelsText, typesText,
 } from './project.js';
 
-const APP_VERSION = 'v4'; // garder en phase avec VERSION dans sw.js
+const APP_VERSION = 'v5'; // garder en phase avec VERSION dans sw.js
 const AXIS = 76;
 const TOP = 34;
 const MAP_H = 400;
@@ -22,6 +24,7 @@ const S = { tool: 'view', ringSel: null, sel: null, scale: 4, draft: null, autho
 let PROJECTS = [];
 let P = null; // projet courant
 let T = null; // tunnel courant
+let R3 = null; // vue 3D, creee a la premiere ouverture
 
 function tunnelState(project, cfg, rings, defects, offsetM) {
   const geo = makeGeometry(project);
@@ -92,7 +95,7 @@ function palette() {
   return {
     bg: v('--surface'), fg: v('--fg'), muted: v('--muted'), line: v('--line'), accent: v('--accent'),
     seg: v('--seg'), segB: v('--seg-b'), segLine: v('--seg-line'), ghost: v('--ghost'),
-    crack: v('--crack'), leak: v('--leak'), spall: v('--spall'), lip: v('--lip'), other: v('--other'),
+    crack: v('--crack'), zone: v('--zone'), leak: v('--leak'), spall: v('--spall'), lip: v('--lip'), other: v('--other'),
     typeA: v('--type-a'), typeB: v('--type-b'), typeU: v('--line'),
   };
 }
@@ -111,6 +114,7 @@ function resize() {
 }
 
 function draw() {
+  if (S.v3d) R3.invalidate();
   cancelAnimationFrame(raf);
   raf = requestAnimationFrame(render);
 }
@@ -226,13 +230,16 @@ canvas.addEventListener('pointermove', (e) => {
   S.draft.push(pos(e));
   draw();
 });
-canvas.addEventListener('pointerup', () => {
-  if (!S.draft) return;
+function finishDraft() {
   const d = S.draft;
   S.draft = null;
+  R3?.setDraft(null);
   draw();
   if (crackLength(d, T.layout, T.geo.circ) < 0.5) return say(tr('msg.tooShort'));
-  placeDefect('crack', d.filter((_, i) => i % 2 === 0 || i === d.length - 1));
+  placeDefect(S.tool, d.filter((_, i) => i % 2 === 0 || i === d.length - 1));
+}
+canvas.addEventListener('pointerup', () => {
+  if (S.draft) finishDraft();
 });
 canvas.addEventListener('pointercancel', () => {
   S.draft = null;
@@ -300,6 +307,7 @@ function ringDetail(r) {
     <dt>${tr('d.keySet')}</dt><dd>K${r.key}</dd>${r.opt && r.opt !== r.key ? `<dt>${tr('d.keyOpt')}</dt><dd>K${r.opt}</dd>` : ''}
     <dt>${tr('d.laid')}</dt><dd>${esc(r.date) || '–'}</dd><dt>${tr('d.source')}</dt><dd>${tr(r.source === 'rfr' ? 'src.rfr' : 'src.manual')}</dd>
     <dt>${tr('d.defects')}</dt><dd>${n}</dd></dl>
+    ${S.v3d ? '' : `<button class="btn primary" id="d3d" type="button">${tr('d.view3d')}</button>`}
     ${r.source === 'rfr' ? '' : `<label class="f">${tr('d.fixKey')} <select id="rK">${keyOptions(r.key)}</select></label>`}`;
 }
 
@@ -317,7 +325,9 @@ function defectForm(f) {
     <div class="row2"><label class="f">${tr('d.date')} <input id="dD" type="date" value="${esc(f.date)}"></label>
     <label class="f">${tr('d.by')} <input id="dB" value="${esc(f.by)}"></label></div>
     <label class="f">${tr('col.note')} <textarea id="dN" rows="2">${esc(f.note)}</textarea></label>
-    <div class="switch"><button class="btn" id="dMove" type="button">${tr(TYPES[f.type].line ? 'd.moveLine' : 'd.movePoint')}</button>
+    <div class="thumbs" id="dThumbs"></div>
+    <label class="btn primary center"><span>${tr('d.addPhotos')}</span><input id="dPhoto" type="file" accept="image/*" multiple class="vh"></label>
+    <div class="switch">${S.v3d ? '' : `<button class="btn" id="d3d" type="button">${tr('d.view3d')}</button>`}<button class="btn" id="dMove" type="button">${tr(TYPES[f.type].line ? 'd.moveLine' : 'd.movePoint')}</button>
     <button class="btn danger" id="dDel" type="button">${tr('d.delete')}</button></div>`;
 }
 
@@ -326,6 +336,7 @@ async function deleteDefect(f) {
   if (!confirm(tr('msg.confirmDelete'))) return;
   f.deleted = true;
   await saveDefect(f);
+  for (const p of await store.photosOf(f.id)) await deletePhoto(p);
   T.defects = T.defects.filter((x) => x !== f);
   if (S.sel === f.id) S.sel = null;
   refresh();
@@ -359,11 +370,15 @@ function detail() {
       say(tr(TYPES[f.type].line ? 'msg.lineHint' : 'msg.moveHint'));
     };
     $('dDel').onclick = () => deleteDefect(f);
+    if ($('d3d')) $('d3d').onclick = () => open3D(ringSpan(f)[0], f.pts[0].d);
+    $('dPhoto').onchange = (e) => addPhotos(f, [...e.target.files]);
+    showThumbs(f);
     return;
   }
   const r = T.rings.get(S.ringSel);
   if (r) {
     box.innerHTML = ringDetail(r);
+    if ($('d3d')) $('d3d').onclick = () => open3D(r.n, 0);
     const k = $('rK');
     if (k) k.onchange = async (e) => {
       r.key = Number(e.target.value);
@@ -388,9 +403,9 @@ function table() {
     const c = (key, html) => `<td data-label="${esc(tr('col.' + key))}">${html}</td>`;
     return `<tr data-id="${esc(f.id)}" class="${f.id === S.sel ? 'on' : ''}">${c('ring', r.rings)}${c('station', r.station)}${c('segment', esc(r.segment))}${c('position', r.position)}
       ${c('type', `<i class="dot" style="background:var(--${f.type})"></i>${esc(r.type)}`)}
-      ${c('severity', `<span class="pill g${f.g}">${esc(r.severity)}</span>`)}${c('length', r.lengthText ?? '–')}${c('status', esc(r.status))}${c('date', esc(r.date))}${c('by', esc(r.by))}${c('note', esc(r.note))}
+      ${c('severity', `<span class="pill g${f.g}">${esc(r.severity)}</span>`)}${c('length', r.lengthText ?? '–')}${c('status', esc(r.status))}${c('photos', r.photos || '–')}${c('date', esc(r.date))}${c('by', esc(r.by))}${c('note', esc(r.note))}
       <td class="acts"><button class="btn mini" type="button" data-act="edit">${tr('act.edit')}</button><button class="btn mini danger" type="button" data-act="delete">${tr('act.delete')}</button></td></tr>`;
-  }).join('') || `<tr><td colspan="12" class="empty">${tr('reg.empty')}</td></tr>`;
+  }).join('') || `<tr><td colspan="13" class="empty">${tr('reg.empty')}</td></tr>`;
 }
 
 const onSmallScreen = () => matchMedia('(max-width: 900px)').matches;
@@ -476,6 +491,215 @@ function saveFile(name, text, type) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
+
+// --- Photos --------------------------------------------------------------
+async function showThumbs(f) {
+  const photos = await store.photosOf(f.id);
+  const box = $('dThumbs');
+  if (!box || S.sel !== f.id) return;
+  box.innerHTML = photos.map((p) => `<figure><img alt="" src="${p.data}" data-open="${esc(p.id)}"><button class="btn mini danger" type="button" data-del="${esc(p.id)}" aria-label="${tr('act.delete')}">×</button></figure>`).join('');
+  box.onclick = async (e) => {
+    const shown = photos.find((p) => p.id === e.target.dataset.open);
+    if (shown) {
+      $('bigPhoto').src = shown.data;
+      $('photoDlg').showModal();
+    }
+    const gone = photos.find((p) => p.id === e.target.dataset.del);
+    if (gone && confirm(tr('msg.confirmPhoto'))) {
+      await deletePhoto(gone);
+      f.photos = Math.max(0, (f.photos ?? 1) - 1);
+      await saveDefect(f);
+      table();
+      showThumbs(f);
+    }
+  };
+}
+
+async function deletePhoto(p) {
+  await store.savePhoto({ ...p, data: '', deleted: true, updatedAt: new Date().toISOString() });
+}
+
+async function addPhotos(f, files) {
+  let done = 0;
+  for (const file of files) {
+    try {
+      const now = new Date().toISOString();
+      await store.savePhoto({
+        id: crypto.randomUUID(), defect: f.id, tunnel: f.tunnel, data: await compressImage(file),
+        by: S.author, createdAt: now, updatedAt: now,
+      });
+      done++;
+    } catch {
+      say(tr('msg.photoFail'));
+    }
+  }
+  if (!done) return;
+  f.photos = (f.photos ?? 0) + done;
+  await saveDefect(f);
+  table();
+  showThumbs(f);
+  say(tr('msg.photoAdded', { n: done }));
+}
+$('photoDlg').onclick = () => $('photoDlg').close();
+
+// --- Vue 3D --------------------------------------------------------------
+const c3 = $('c3d');
+const fingers = new Map();
+let gesture = null;
+
+function paint3D(ctx, fromFt, toFt, w, h) {
+  drawStrip(ctx, {
+    layout: T.layout, rings: T.rings, defects: T.defects, geo: T.geo, typeOf: T.typeOf,
+    fromFt, toFt, scale: w / (toFt - fromFt), x0: 0, top: 0, H: h, c: colors,
+    selRing: S.ringSel, selId: S.sel, k: 2,
+  });
+}
+
+function show3D(n, deg) {
+  const a = Math.max(1, n - 1);
+  const b = Math.min(T.total, n + 1);
+  const s = T.layout.start;
+  S.ringSel = n;
+  R3.setRange(s[a], s[b + 1], (s[n] + s[n + 1]) / 2, T.geo.circ / (2 * Math.PI));
+  if (deg !== undefined) R3.look(deg);
+  $('v3dTitle').textContent = `${tr('d.ring')} ${n}`;
+  $('v3dPrev').disabled = !T.rings.has(n - 1);
+  $('v3dNext').disabled = !T.rings.has(n + 1);
+  detail();
+  table();
+}
+
+async function open3D(n, deg) {
+  try {
+    R3 ??= await Ring3D.create(c3, paint3D);
+  } catch {
+    say(tr('msg.no3d'));
+    return;
+  }
+  S.v3d = true;
+  $('v3d').hidden = false;
+  $('side3d').append($('detail'));
+  R3.resize();
+  show3D(n, deg);
+}
+
+function close3D() {
+  S.v3d = false;
+  S.draft = null;
+  fingers.clear();
+  R3.setDraft(null);
+  $('v3d').hidden = true;
+  document.querySelector('.side').prepend($('detail'));
+  setTool('view');
+  refresh();
+}
+
+function hit3D(e) {
+  const h = R3.hit(e.clientX, e.clientY);
+  return h && { r: T.layout.rOf(Math.max(0, Math.min(T.layout.length - 0.001, h.ft))), d: Math.max(-180, Math.min(180, h.d)) };
+}
+
+const draft3D = () => R3.setDraft(S.draft.map((p) => [T.layout.ftOf(p.r), p.d]));
+
+// Distance en pieds entre un toucher et chaque defaut, pour la selection en 3D.
+function pick3D(p) {
+  const px = T.layout.ftOf(p.r);
+  const py = (p.d / 360) * T.geo.circ;
+  const xy = (q) => [T.layout.ftOf(q.r), (q.d / 360) * T.geo.circ];
+  let best = null;
+  let bestD = 1;
+  for (const f of T.defects) {
+    const pts = f.pts.map(xy);
+    pts.forEach(([ax, ay], i) => {
+      const [bx, by] = pts[i + 1] ?? [ax, ay];
+      const l = (bx - ax) ** 2 + (by - ay) ** 2 || 1;
+      const u = Math.max(0, Math.min(1, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / l));
+      const dist = Math.hypot(ax + u * (bx - ax) - px, ay + u * (by - ay) - py);
+      if (dist < bestD) {
+        bestD = dist;
+        best = f;
+      }
+    });
+  }
+  return best;
+}
+
+const centroid = () => {
+  const v = [...fingers.values()];
+  return [v.reduce((s, p) => s + p[0], 0) / v.length, v.reduce((s, p) => s + p[1], 0) / v.length];
+};
+const spread = () => {
+  const [a, b] = [...fingers.values()];
+  return b ? Math.hypot(a[0] - b[0], a[1] - b[1]) : 0;
+};
+
+c3.addEventListener('pointerdown', (e) => {
+  fingers.set(e.pointerId, [e.clientX, e.clientY]);
+  c3.setPointerCapture(e.pointerId);
+  gesture = { at: centroid(), spread: spread(), moved: false };
+  if (fingers.size > 1) {
+    S.draft = null;
+    R3.setDraft(null);
+    return;
+  }
+  if (S.tool === 'view') return;
+  const p = hit3D(e);
+  if (!p) return;
+  if (!isBuilt(p)) return say(tr('msg.notLaid'));
+  if (TYPES[S.tool].line) S.draft = [p];
+  else placeDefect(S.tool, [p]);
+});
+c3.addEventListener('pointermove', (e) => {
+  if (!fingers.has(e.pointerId)) return;
+  fingers.set(e.pointerId, [e.clientX, e.clientY]);
+  if (S.draft) {
+    const p = hit3D(e);
+    if (p) S.draft.push(p);
+    draft3D();
+    return;
+  }
+  if (S.tool !== 'view' && fingers.size < 2) return;
+  const [x, y] = centroid();
+  const [dx, dy] = [x - gesture.at[0], y - gesture.at[1]];
+  if (Math.hypot(dx, dy) > 3) gesture.moved = true;
+  R3.orbit(dx, dy);
+  if (fingers.size === 2 && gesture.spread) {
+    R3.zoom(spread() / gesture.spread);
+    gesture.spread = spread();
+    gesture.moved = true;
+  }
+  gesture.at = [x, y];
+});
+function release(e) {
+  fingers.delete(e.pointerId);
+  if (S.draft && !fingers.size) return finishDraft();
+  if (fingers.size) {
+    gesture = { at: centroid(), spread: spread(), moved: true };
+    return;
+  }
+  if (S.tool !== 'view' || gesture?.moved) return;
+  const p = hit3D(e);
+  if (!p) return;
+  const f = pick3D(p);
+  S.sel = f?.id ?? null;
+  const n = f ? ringSpan(f)[0] : Math.floor(p.r);
+  if (T.rings.has(n) && n !== S.ringSel) show3D(n);
+  else {
+    draw();
+    detail();
+    table();
+  }
+}
+c3.addEventListener('pointerup', release);
+c3.addEventListener('pointercancel', release);
+c3.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  R3.zoom(e.deltaY < 0 ? 1.1 : 0.9);
+}, { passive: false });
+$('v3dClose').onclick = close3D;
+$('v3dPrev').onclick = () => { S.sel = null; show3D(S.ringSel - 1); };
+$('v3dNext').onclick = () => { S.sel = null; show3D(S.ringSel + 1); };
+new ResizeObserver(() => S.v3d && R3.resize()).observe(c3);
 
 // --- Ecran Projet --------------------------------------------------------
 const dlg = $('projDlg');
@@ -644,8 +868,9 @@ $('rfr').addEventListener('change', async (e) => {
     say(message(err));
   }
 });
-$('bPrint').onclick = () => {
-  buildReport($('report'), T, S.author);
+$('bPrint').onclick = async () => {
+  await buildReport($('report'), T, S.author);
+  await Promise.all([...document.querySelectorAll('#report img')].map((i) => i.decode().catch(() => {})));
   window.print();
 };
 $('bExcel').onclick = () => exportExcel(T);
@@ -681,6 +906,7 @@ window.addEventListener('resize', resize);
   S.author = await store.getMeta('author', '');
   $('author').value = S.author;
   setTool('view');
+  navigator.storage?.persist?.(); // limite l'effacement des photos par le navigateur
   PROJECTS = await store.getMeta('projects', []);
   showScreen(PROJECTS.length ? 'ring' : 'data');
   if (PROJECTS.length) await loadProject(await store.getMeta('project'));

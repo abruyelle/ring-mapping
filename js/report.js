@@ -3,6 +3,7 @@ import { clock, crackLength } from './geometry.js';
 import { TYPES } from './config.js';
 import { LIGHT, drawStrip } from './draw.js';
 import { lenNumber, lenText, t as tr, unitName } from './i18n.js';
+import { store } from './store.js';
 
 const RINGS_PER_STRIP = 100;
 const STRIP_W = 1800;
@@ -30,6 +31,7 @@ export function defectRow(f, t) {
     lengthText: ft == null ? null : lenText(ft),
     length: ft == null ? null : lenNumber(ft),
     status: tr('st.' + f.stat),
+    photos: f.photos ?? 0,
     date: f.date,
     by: f.by,
     note: f.note,
@@ -64,7 +66,7 @@ function stripImage(t, fromRing, toRing) {
   return canvas.toDataURL('image/png');
 }
 
-export function buildReport(root, t, author) {
+export async function buildReport(root, t, author) {
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const built = t.lastRing;
   const counts = Object.keys(TYPES)
@@ -85,6 +87,16 @@ export function buildReport(root, t, author) {
       + rows.map((r) => `<tr><td>${r.rings}</td><td>${esc(r.station)}</td><td>${esc(r.segment)}</td><td>${r.position}</td><td>${esc(r.type)}</td><td>${esc(r.severity)}</td><td>${r.lengthText ?? ''}</td><td>${esc(r.status)}</td><td>${esc(r.date)}</td><td>${esc(r.by)}</td><td>${esc(r.note)}</td></tr>`).join('')
       + '</tbody></table>';
   }
+  let cards = '';
+  for (const f of sortDefects(t.defects)) {
+    const photos = await store.photosOf(f.id);
+    if (!photos.length) continue;
+    const r = defectRow(f, t);
+    cards += `<article class="r-card"><h3>${esc(r.type)} · ${tr('col.ring')} ${r.rings} · ${esc(r.segment)} · ${r.position} · ${esc(r.severity)}</h3>
+      <p>${esc(r.station)} · ${esc(r.status)} · ${esc(r.date)}${r.by ? ' · ' + esc(r.by) : ''}${r.note ? ' · ' + esc(r.note) : ''}</p>
+      <div class="r-photos">${photos.map((p) => `<img alt="" src="${p.data}">`).join('')}</div></article>`;
+  }
+  if (cards) html += `<h2 class="r-sec">${tr('r.photos')}</h2>${cards}`;
   root.innerHTML = html;
 }
 
@@ -97,6 +109,7 @@ export function exportExcel(t) {
       [tr('x.id')]: r.id, [tr('x.tunnel')]: t.name, [tr('col.ring')]: r.rings, [tr('col.station')]: r.station,
       [tr('col.segment')]: r.segment, [tr('col.position')]: r.position, [tr('col.type')]: r.type,
       [tr('col.severity')]: r.severity, [tr('col.length') + u]: r.length, [tr('col.status')]: r.status,
+      [tr('col.photos')]: r.photos,
       [tr('col.date')]: r.date, [tr('col.by')]: r.by, [tr('col.note')]: r.note,
     };
   });

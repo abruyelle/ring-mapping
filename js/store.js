@@ -1,16 +1,21 @@
 // Stockage sur l'appareil (IndexedDB). Toute la lecture et l'ecriture passent par cet objet.
 // Les anneaux et defauts portent la cle "<projet>/<tunnel>".
 const DB = 'ring-mapping';
-const VERSION = 1;
+const VERSION = 2;
 
 function open() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB, VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      db.createObjectStore('rings', { keyPath: ['tunnel', 'n'] });
-      db.createObjectStore('defects', { keyPath: 'id' });
-      db.createObjectStore('meta', { keyPath: 'k' });
+      if (!db.objectStoreNames.contains('rings')) {
+        db.createObjectStore('rings', { keyPath: ['tunnel', 'n'] });
+        db.createObjectStore('defects', { keyPath: 'id' });
+        db.createObjectStore('meta', { keyPath: 'k' });
+      }
+      if (!db.objectStoreNames.contains('photos')) {
+        db.createObjectStore('photos', { keyPath: 'id' }).createIndex('defect', 'defect');
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -58,6 +63,13 @@ export const store = {
   saveDefect(d) {
     return tx(['defects'], 'readwrite', (t) => void t.objectStore('defects').put(d));
   },
+  async photosOf(defect) {
+    const list = await tx(['photos'], 'readonly', (t) => t.objectStore('photos').index('defect').getAll(defect));
+    return list.filter((p) => !p.deleted).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  },
+  savePhoto(p) {
+    return tx(['photos'], 'readwrite', (t) => void t.objectStore('photos').put(p));
+  },
   async getMeta(k, fallback = null) {
     const r = await tx(['meta'], 'readonly', (t) => t.objectStore('meta').get(k));
     return r ? r.v : fallback;
@@ -68,9 +80,11 @@ export const store = {
   async deleteProject(id) {
     const rings = (await all('rings')).filter(inProject(id));
     const defects = (await all('defects')).filter(inProject(id));
-    await tx(['rings', 'defects'], 'readwrite', (t) => {
+    const photos = (await all('photos')).filter(inProject(id));
+    await tx(['rings', 'defects', 'photos'], 'readwrite', (t) => {
       rings.forEach((r) => t.objectStore('rings').delete([r.tunnel, r.n]));
       defects.forEach((d) => t.objectStore('defects').delete(d.id));
+      photos.forEach((p) => t.objectStore('photos').delete(p.id));
     });
   },
   async exportProject(project) {
@@ -79,15 +93,18 @@ export const store = {
       app: 'ring-mapping', version: VERSION, exportedAt: new Date().toISOString(), project,
       rings: (await all('rings')).filter(inProject(project.id)),
       defects: (await all('defects')).filter(inProject(project.id)),
+      photos: (await all('photos')).filter(inProject(project.id)),
       meta: offsets,
     };
   },
   async importData(data) {
     const rings = newerThan(data.rings, await all('rings'), (r) => r.tunnel + '#' + r.n);
     const defects = newerThan(data.defects, await all('defects'), (d) => d.id);
-    await tx(['rings', 'defects', 'meta'], 'readwrite', (t) => {
+    const photos = newerThan(data.photos ?? [], await all('photos'), (p) => p.id);
+    await tx(['rings', 'defects', 'photos', 'meta'], 'readwrite', (t) => {
       rings.forEach((r) => t.objectStore('rings').put(r));
       defects.forEach((d) => t.objectStore('defects').put(d));
+      photos.forEach((p) => t.objectStore('photos').put(p));
       data.meta.forEach((m) => t.objectStore('meta').put(m));
     });
     return { rings: rings.length, defects: defects.length };
