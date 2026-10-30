@@ -5,13 +5,13 @@ import { store } from './store.js';
 import { drawStrip } from './draw.js';
 import { applyI18n, lenText, prefs, stationText, t as tr } from './i18n.js';
 import { buildReport, defectRow, exportExcel, ringSpan, sortDefects } from './report.js';
-import { Ring3D } from './view3d.js';
+import { Ring3D, Tunnel3D } from './view3d.js';
 import { compressImage } from './photos.js';
 import {
   FORMAT, TEMPLATE, normalizeProject, parseSegments, parseTunnels, parseTypes, segmentsText, tunnelsText, typesText,
 } from './project.js';
 
-const APP_VERSION = 'v6'; // garder en phase avec VERSION dans sw.js
+const APP_VERSION = 'v7'; // garder en phase avec VERSION dans sw.js
 const AXIS = 76;
 const TOP = 34;
 const MAP_H = 400;
@@ -25,6 +25,7 @@ let PROJECTS = [];
 let P = null; // projet courant
 let T = null; // tunnel courant
 let R3 = null; // vue 3D, creee a la premiere ouverture
+let TUN = null; // tunnel 3D, cree a la premiere ouverture
 
 function tunnelState(project, cfg, rings, defects, offsetM) {
   const geo = makeGeometry(project);
@@ -81,6 +82,7 @@ async function loadTunnel(id) {
   resize();
   refresh();
   goToFront();
+  if (S.tun) buildTunnel();
 }
 
 // --- Carte ---------------------------------------------------------------
@@ -429,6 +431,7 @@ function showScreen(name) {
   S.screen = name;
   document.body.dataset.screen = name;
   document.querySelectorAll('#tabs button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.screen === name));
+  if (name === 'tun') openTunnel();
   if (!T || !scroller.clientWidth) return;
   resize();
   if (S.front) {
@@ -801,6 +804,90 @@ $('v3dClose').onclick = close3D;
 $('v3dPrev').onclick = () => { S.sel = null; show3D(S.ringSel - 1); };
 $('v3dNext').onclick = () => { S.sel = null; show3D(S.ringSel + 1); };
 new ResizeObserver(() => S.v3d && R3.resize()).observe(c3);
+
+// --- Tunnel 3D -----------------------------------------------------------
+const cT = $('cTun');
+const tFingers = new Map();
+let tGesture = null;
+
+function buildTunnel() {
+  const last = T.lastRing;
+  $('tunEmpty').hidden = !!last;
+  $('tunRing').max = Math.max(1, last);
+  $('tunRing').value = Math.max(1, last);
+  $('tunLabel').textContent = last ? `${tr('d.ring')} ${last}` : '';
+  TUN.build(T, colors);
+  if (last) TUN.focus(T.layout.start[last]);
+}
+
+async function openTunnel() {
+  if (!T) return;
+  try {
+    TUN ??= await Tunnel3D.create(cT);
+  } catch {
+    say(tr('msg.no3d'));
+    return;
+  }
+  $('tunBox').hidden = false;
+  S.tun = true;
+  TUN.resize();
+  buildTunnel();
+}
+
+$('tun3dOpen').onclick = openTunnel;
+$('tunRing').oninput = (e) => {
+  const n = Number(e.target.value);
+  $('tunLabel').textContent = `${tr('d.ring')} ${n}`;
+  TUN.focus(T.layout.start[n]);
+};
+const tCentre = () => {
+  const v = [...tFingers.values()];
+  return [v.reduce((s, p) => s + p[0], 0) / v.length, v.reduce((s, p) => s + p[1], 0) / v.length];
+};
+const tSpread = () => {
+  const [a, b] = [...tFingers.values()];
+  return b ? Math.hypot(a[0] - b[0], a[1] - b[1]) : 0;
+};
+cT.addEventListener('pointerdown', (e) => {
+  tFingers.set(e.pointerId, [e.clientX, e.clientY]);
+  cT.setPointerCapture(e.pointerId);
+  tGesture = { at: tCentre(), spread: tSpread(), moved: tFingers.size > 1 };
+});
+cT.addEventListener('pointermove', (e) => {
+  if (!tFingers.has(e.pointerId)) return;
+  tFingers.set(e.pointerId, [e.clientX, e.clientY]);
+  const [x, y] = tCentre();
+  const [dx, dy] = [x - tGesture.at[0], y - tGesture.at[1]];
+  if (Math.hypot(dx, dy) > 3) tGesture.moved = true;
+  TUN.orbit(dx, dy);
+  if (tFingers.size === 2 && tGesture.spread) {
+    TUN.zoom(tSpread() / tGesture.spread);
+    tGesture.spread = tSpread();
+  }
+  tGesture.at = [x, y];
+});
+function tRelease(e) {
+  tFingers.delete(e.pointerId);
+  if (tFingers.size) {
+    tGesture = { at: tCentre(), spread: tSpread(), moved: true };
+    return;
+  }
+  if (tGesture?.moved) return;
+  const ft = TUN.hit(e.clientX, e.clientY);
+  if (ft === null) return;
+  const n = T.layout.ringAtFt(ft);
+  if (!T.rings.has(n)) return;
+  showScreen('ring');
+  centerRing(n);
+  open3D(n, 0);
+}
+cT.addEventListener('pointerup', tRelease);
+cT.addEventListener('pointercancel', () => tFingers.clear());
+cT.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  TUN.zoom(e.deltaY < 0 ? 1.15 : 0.87);
+}, { passive: false });
+new ResizeObserver(() => S.tun && TUN.resize()).observe(cT);
 
 // --- Ecran Projet --------------------------------------------------------
 const dlg = $('projDlg');

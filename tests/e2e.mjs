@@ -172,6 +172,12 @@ try {
   await p.click('#tabs [data-screen="ring"]');
   await p.waitForTimeout(150);
   assert.ok(Math.abs(await p.evaluate(() => document.getElementById('scroller').scrollLeft) - kept) < 400, 'position conservee');
+  await p.click('#tabs [data-screen="tun"]');
+  await p.waitForSelector('#tunBox:not([hidden])');
+  await p.waitForTimeout(700);
+  assert.ok(await noOverflow(), 'debordement tunnel 3D');
+  await p.screenshot({ path: join(out, '7-tunnel-tel.png') });
+  await p.click('#tabs [data-screen="ring"]');
   await p.fill('#goN', '150');
   await p.click('#goForm button');
   await p.click('#d3d');
@@ -191,6 +197,33 @@ try {
   await pt.waitForTimeout(200);
   assert.ok(await pt.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'pas de debordement tablette');
   await pt.screenshot({ path: join(out, '5-tablette.png') });
+
+  // Tunnel 3D : tous les anneaux, navigation, et ouverture d'un anneau au toucher.
+  const c5 = await browser.newContext({ viewport: { width: 1360, height: 950 } });
+  const u = await c5.newPage();
+  u.on('pageerror', (e) => errors.push(e.message));
+  await u.goto(URL_APP);
+  await u.waitForSelector('#projDlg[open]');
+  await u.setInputFiles('#pImport', projectFile);
+  await u.waitForFunction(() => !document.querySelector('#projDlg').open);
+  await u.setInputFiles('#rfr', rfr);
+  await u.waitForFunction(() => !document.querySelector('#stats b').textContent.startsWith('0 /'));
+  await u.click('#tun3dOpen');
+  await u.waitForSelector('#tunBox:not([hidden])');
+  await u.locator('#cTun').scrollIntoViewIfNeeded();
+  await u.waitForTimeout(700);
+  await u.screenshot({ path: join(out, '7-tunnel.png') });
+  assert.equal(await u.inputValue('#tunRing'), await u.getAttribute('#tunRing', 'max'));
+  await u.evaluate(() => { const s = document.getElementById('tunRing'); s.value = 50; s.dispatchEvent(new Event('input')); });
+  await u.waitForTimeout(200);
+  assert.match(await u.textContent('#tunLabel'), /Anneau 50/);
+  const bt = await u.locator('#cTun').boundingBox();
+  await u.mouse.click(bt.x + bt.width / 2, bt.y + bt.height / 2);
+  await u.waitForSelector('#v3d:not([hidden])');
+  const opened = Number((await u.textContent('#v3dTitle')).replace(/\D/g, ''));
+  assert.ok(opened >= 30 && opened <= 70, 'anneau ouvert pres de la cible : ' + opened);
+  await u.click('#v3dClose');
+  await c5.close();
 
   // Vue 3D, zone tracee sur le segment, photos, rapport et echange entre appareils.
   const c3 = await browser.newContext({ viewport: { width: 1360, height: 950 }, acceptDownloads: true });

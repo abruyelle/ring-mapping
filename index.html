@@ -100,6 +100,19 @@
     </tr></thead><tbody id="rows"></tbody></table></div>
   </section>
 
+  <section class="panel" data-s="tun">
+    <div class="tablehead">
+      <h2 data-i18n="tun.title"></h2>
+      <button class="btn" id="tun3dOpen" type="button" data-i18n="tun.open"></button>
+    </div>
+    <div id="tunBox" hidden>
+      <div class="tun-view"><canvas id="cTun"></canvas></div>
+      <label class="tun-nav"><span id="tunLabel"></span><input id="tunRing" type="range" min="1" max="1" value="1"></label>
+      <p class="empty small tun-note" data-i18n="tun.help"></p>
+      <p class="empty tun-note" id="tunEmpty" data-i18n="tun.empty" hidden></p>
+    </div>
+  </section>
+
   <section class="panel exports" data-s="data">
     <label class="f who"><span data-i18n="exp.author"></span> <input id="author" autocomplete="name"></label>
     <div class="switch">
@@ -116,6 +129,7 @@
   <button type="button" data-screen="data" data-i18n="tab.data"></button>
   <button type="button" data-screen="ring" data-i18n="tab.ring"></button>
   <button type="button" data-screen="def" data-i18n="tab.def"></button>
+  <button type="button" data-screen="tun" data-i18n="tab.tun"></button>
 </nav>
 
 <section id="v3d" hidden>

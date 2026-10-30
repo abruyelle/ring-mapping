@@ -248,3 +248,143 @@ export class Ring3D {
     return out.toDataURL('image/jpeg', 0.8);
   }
 }
+
+// Tous les anneaux montes, assembles en un seul objet pour rester fluide sur telephone.
+export class Tunnel3D {
+  static async create(canvas) {
+    THREE ??= await import('../lib/three.module.min.js');
+    return new Tunnel3D(canvas);
+  }
+
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x23282d);
+    this.camera = new THREE.PerspectiveCamera(50, 1, 0.5, 20000);
+    this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+    this.scene.add(this.mesh);
+    this.marks = null;
+    this.target = new THREE.Vector3();
+    this.ray = new THREE.Raycaster();
+    this.az = 35;
+    this.el = 18;
+    this.dist = 70;
+    this.raf = 0;
+  }
+
+  build(t, c) {
+    const R = t.geo.circ / (2 * Math.PI);
+    const { bounds, offsets, n: segs } = t.geo;
+    const start = t.layout.start;
+    const pos = [];
+    const col = [];
+    const index = [];
+    const paint = [c.accent, c.segB, c.seg].map((h) => new THREE.Color(h));
+    const inset = 0.5; // laisse apparaitre les joints
+    const gap = 0.15;
+    for (const ring of t.rings.values()) {
+      const b = bounds(ring.key);
+      const [ftA, ftB] = [start[ring.n], start[ring.n + 1] - gap];
+      for (let i = 0; i < segs; i++) {
+        const steps = Math.max(2, Math.ceil((b[i + 1] - b[i]) / 7.5));
+        const color = paint[i === 0 ? 0 : i === 1 || i === segs - 1 ? 1 : 2];
+        const base = pos.length / 3;
+        for (let k = 0; k <= steps; k++) {
+          const f = k / steps;
+          const d = b[i] + inset + f * (b[i + 1] - b[i] - 2 * inset);
+          const o = offsets[i] + f * (offsets[i + 1] - offsets[i]);
+          for (const [ft, a] of [[ftA, d + o], [ftB, d - o]]) {
+            pos.push(R * Math.sin(rad(a)), R * Math.cos(rad(a)), -ft);
+            col.push(color.r, color.g, color.b);
+          }
+          if (k < steps) {
+            const q = base + k * 2;
+            index.push(q, q + 1, q + 2, q + 1, q + 3, q + 2);
+          }
+        }
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(new THREE.BufferAttribute(new Uint32Array(index), 1));
+    g.computeBoundingSphere();
+    this.mesh.geometry.dispose();
+    this.mesh.geometry = g;
+    if (this.marks) {
+      this.scene.remove(this.marks);
+      this.marks.dispose();
+      this.marks = null;
+    }
+    if (t.defects.length) {
+      this.marks = new THREE.InstancedMesh(new THREE.SphereGeometry(0.7, 10, 8), new THREE.MeshBasicMaterial(), t.defects.length);
+      const m = new THREE.Matrix4();
+      t.defects.forEach((f, i) => {
+        const p = f.pts[0];
+        m.setPosition(R * 0.98 * Math.sin(rad(p.d)), R * 0.98 * Math.cos(rad(p.d)), -t.layout.ftOf(p.r));
+        this.marks.setMatrixAt(i, m);
+        this.marks.setColorAt(i, new THREE.Color(c[f.type]));
+      });
+      this.scene.add(this.marks);
+    }
+    this.request();
+  }
+
+  focus(ft) {
+    this.target.set(0, 0, -ft);
+    this.request();
+  }
+
+  orbit(dx, dy) {
+    this.az -= dx * 0.4;
+    this.el = Math.max(-85, Math.min(85, this.el + dy * 0.4));
+    this.request();
+  }
+
+  zoom(ratio) {
+    this.dist = Math.max(4, Math.min(8000, this.dist / ratio));
+    this.request();
+  }
+
+  resize() {
+    const w = this.canvas.clientWidth;
+    const h = this.canvas.clientHeight;
+    if (!w || !h) return;
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    this.request();
+  }
+
+  aim() {
+    const a = rad(this.az);
+    const e = rad(this.el);
+    this.camera.position.set(
+      this.target.x + this.dist * Math.sin(a) * Math.cos(e),
+      this.target.y + this.dist * Math.sin(e),
+      this.target.z + this.dist * Math.cos(a) * Math.cos(e),
+    );
+    this.camera.lookAt(this.target);
+  }
+
+  // Position le long du tunnel sous le doigt, ou null a cote du tunnel.
+  hit(clientX, clientY) {
+    const b = this.canvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((clientX - b.left) / b.width) * 2 - 1, -((clientY - b.top) / b.height) * 2 + 1);
+    this.aim();
+    this.camera.updateMatrixWorld();
+    this.ray.setFromCamera(ndc, this.camera);
+    const [first] = this.ray.intersectObject(this.mesh);
+    return first ? -first.point.z : null;
+  }
+
+  request() {
+    cancelAnimationFrame(this.raf);
+    this.raf = requestAnimationFrame(() => {
+      this.aim();
+      this.renderer.render(this.scene, this.camera);
+    });
+  }
+}
