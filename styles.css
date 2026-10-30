@@ -89,6 +89,7 @@ tbody tr[data-id]:hover,tbody tr.on{background:var(--bg)}
 .tun-nav span{min-width:96px}
 .tun-nav input{flex:1;min-width:0}
 .tun-note{padding:8px 14px 12px}
+.tun-views{padding:10px 14px 0}
 .center{justify-content:center}
 .thumbs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
 .thumbs:empty{display:none}

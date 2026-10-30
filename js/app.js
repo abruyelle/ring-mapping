@@ -1,4 +1,4 @@
-import { Layout, crackLength, makeGeometry, toFt } from './geometry.js';
+import { AxisPath, Layout, crackLength, makeGeometry, toFt } from './geometry.js';
 import { LEGACY_STATUS, STATUS, TYPES } from './config.js';
 import { mergeRFR, parseRFR, stationFt } from './rfr.js';
 import { store } from './store.js';
@@ -11,7 +11,7 @@ import {
   FORMAT, TEMPLATE, normalizeProject, parseSegments, parseTunnels, parseTypes, segmentsText, tunnelsText, typesText,
 } from './project.js';
 
-const APP_VERSION = 'v7'; // garder en phase avec VERSION dans sw.js
+const APP_VERSION = 'v8'; // garder en phase avec VERSION dans sw.js
 const AXIS = 76;
 const TOP = 34;
 const MAP_H = 400;
@@ -35,6 +35,7 @@ function tunnelState(project, cfg, rings, defects, offsetM) {
   const widthOf = (label) => toFt(types[label].width, project.unit);
   return {
     ...cfg,
+    axis: project.axis && cfg.axisStart !== undefined ? { path: new AxisPath(project.axis), dir: cfg.axisDir } : null,
     key: project.id + '/' + cfg.id,
     projectName: project.name,
     geo,
@@ -817,7 +818,7 @@ function buildTunnel() {
   $('tunRing').value = Math.max(1, last);
   $('tunLabel').textContent = last ? `${tr('d.ring')} ${last}` : '';
   TUN.build(T, colors);
-  if (last) TUN.focus(T.layout.start[last]);
+  if (last) TUN.focusRing(last);
 }
 
 async function openTunnel() {
@@ -838,8 +839,9 @@ $('tun3dOpen').onclick = openTunnel;
 $('tunRing').oninput = (e) => {
   const n = Number(e.target.value);
   $('tunLabel').textContent = `${tr('d.ring')} ${n}`;
-  TUN.focus(T.layout.start[n]);
+  if (T.lastRing) TUN.focusRing(n);
 };
+document.querySelectorAll('[data-tunview]').forEach((b) => (b.onclick = () => TUN.view(b.dataset.tunview)));
 const tCentre = () => {
   const v = [...tFingers.values()];
   return [v.reduce((s, p) => s + p[0], 0) / v.length, v.reduce((s, p) => s + p[1], 0) / v.length];
@@ -873,10 +875,8 @@ function tRelease(e) {
     return;
   }
   if (tGesture?.moved) return;
-  const ft = TUN.hit(e.clientX, e.clientY);
-  if (ft === null) return;
-  const n = T.layout.ringAtFt(ft);
-  if (!T.rings.has(n)) return;
+  const n = TUN.hit(e.clientX, e.clientY);
+  if (n === null || !T.rings.has(n)) return;
   showScreen('ring');
   centerRing(n);
   open3D(n, 0);
@@ -908,9 +908,14 @@ function fillProjectForm(p) {
 function readProjectForm() {
   return normalizeProject({
     ...(dlg.dataset.id ? { id: dlg.dataset.id, rfr: P?.rfr } : {}),
+    ...(dlg.dataset.id && P?.axis ? { axis: P.axis } : {}),
     format: FORMAT, name: $('pName').value, unit: $('pUnit').value,
     circumference: $('pCirc').value, keyTaper: $('pTaper').value, keyPositions: $('pKeys').value,
-    segments: parseSegments($('pSegs').value), ringTypes: parseTypes($('pTypes').value), tunnels: parseTunnels($('pTunnels').value),
+    segments: parseSegments($('pSegs').value), ringTypes: parseTypes($('pTypes').value),
+    tunnels: parseTunnels($('pTunnels').value).map((t) => {
+      const old = dlg.dataset.id && P?.tunnels.find((x) => x.id === t.id);
+      return old?.axisStart === undefined ? t : { ...t, axisStart: old.axisStart, axisDir: old.axisDir };
+    }),
   });
 }
 

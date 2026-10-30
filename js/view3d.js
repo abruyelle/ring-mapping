@@ -262,9 +262,11 @@ export class Tunnel3D {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x23282d);
-    this.camera = new THREE.PerspectiveCamera(50, 1, 0.5, 20000);
+    this.camera = new THREE.PerspectiveCamera(50, 1, 1, 200000);
     this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
     this.scene.add(this.mesh);
+    this.rest = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x9aa3aa }));
+    this.scene.add(this.rest);
     this.marks = null;
     this.target = new THREE.Vector3();
     this.ray = new THREE.Raycaster();
@@ -274,19 +276,51 @@ export class Tunnel3D {
     this.raf = 0;
   }
 
+  // Centre et direction d'un anneau : sur le trace s'il existe, sinon en ligne droite.
+  frames(t) {
+    const start = t.layout.start;
+    const axis = t.axis;
+    const place = (ft) => (axis
+      ? { c: axis.path.at(t.axisStart + axis.dir * ft), d: axis.path.tangent(t.axisStart + axis.dir * ft).map((v) => v * axis.dir) }
+      : { c: [0, 0, -ft], d: [0, 0, -1] });
+    return (n) => {
+      const [a, b] = [place(start[n]), place(start[n + 1])];
+      const ce = axis && t.rings.get(n)?.ce;
+      if (ce) {
+        // Anneau construit : position relevee par le guidage plutot que theorique.
+        const real = axis.path.fromSurvey(ce);
+        const mid = a.c.map((v, i) => (v + b.c[i]) / 2);
+        const shift = real.map((v, i) => v - mid[i]);
+        a.c = a.c.map((v, i) => v + shift[i]);
+        b.c = b.c.map((v, i) => v + shift[i]);
+      }
+      return [a, b];
+    };
+  }
+
   build(t, c) {
     const R = t.geo.circ / (2 * Math.PI);
     const { bounds, offsets, n: segs } = t.geo;
-    const start = t.layout.start;
+    const frame = this.frames(t);
     const pos = [];
     const col = [];
     const index = [];
+    this.triRing = [];
     const paint = [c.accent, c.segB, c.seg].map((h) => new THREE.Color(h));
     const inset = 0.5; // laisse apparaitre les joints
     const gap = 0.15;
+    // Point de la paroi : a droite en regardant vers l'avancement pour un angle positif.
+    const wall = (f, a, along) => {
+      const d = f.d;
+      const h = Math.hypot(d[0], d[2]) || 1;
+      const right = [-d[2] / h, 0, d[0] / h];
+      const up = [right[1] * d[2] - right[2] * d[1], right[2] * d[0] - right[0] * d[2], right[0] * d[1] - right[1] * d[0]];
+      const [sa, ca] = [Math.sin(rad(a)) * R, Math.cos(rad(a)) * R];
+      return [0, 1, 2].map((k) => f.c[k] + right[k] * sa + up[k] * ca + d[k] * along);
+    };
     for (const ring of t.rings.values()) {
       const b = bounds(ring.key);
-      const [ftA, ftB] = [start[ring.n], start[ring.n + 1] - gap];
+      const [fa, fb] = frame(ring.n);
       for (let i = 0; i < segs; i++) {
         const steps = Math.max(2, Math.ceil((b[i + 1] - b[i]) / 7.5));
         const color = paint[i === 0 ? 0 : i === 1 || i === segs - 1 ? 1 : 2];
@@ -295,13 +329,12 @@ export class Tunnel3D {
           const f = k / steps;
           const d = b[i] + inset + f * (b[i + 1] - b[i] - 2 * inset);
           const o = offsets[i] + f * (offsets[i + 1] - offsets[i]);
-          for (const [ft, a] of [[ftA, d + o], [ftB, d - o]]) {
-            pos.push(R * Math.sin(rad(a)), R * Math.cos(rad(a)), -ft);
-            col.push(color.r, color.g, color.b);
-          }
+          pos.push(...wall(fa, d + o, 0), ...wall(fb, d - o, -gap));
+          col.push(color.r, color.g, color.b, color.r, color.g, color.b);
           if (k < steps) {
             const q = base + k * 2;
             index.push(q, q + 1, q + 2, q + 1, q + 3, q + 2);
+            this.triRing.push(ring.n, ring.n);
           }
         }
       }
@@ -323,17 +356,49 @@ export class Tunnel3D {
       const m = new THREE.Matrix4();
       t.defects.forEach((f, i) => {
         const p = f.pts[0];
-        m.setPosition(R * 0.98 * Math.sin(rad(p.d)), R * 0.98 * Math.cos(rad(p.d)), -t.layout.ftOf(p.r));
+        const n = Math.floor(p.r);
+        const [fa, fb] = frame(n);
+        const u = p.r - n;
+        const here = { c: fa.c.map((v, k) => v + (fb.c[k] - v) * u), d: fa.d };
+        m.setPosition(...wall(here, p.d, 0));
         this.marks.setMatrixAt(i, m);
         this.marks.setColorAt(i, new THREE.Color(c[f.type]));
       });
       this.scene.add(this.marks);
     }
+    // Reste du trace, pour situer le front de pose.
+    const rest = [];
+    if (t.axis) {
+      const step = Math.max(1, Math.round((t.total - t.lastRing) / 400));
+      for (let n = t.lastRing + 1; n <= t.total; n += step) rest.push(...frame(n)[0].c);
+    }
+    this.rest.geometry.setAttribute('position', new THREE.Float32BufferAttribute(rest, 3));
+    this.rest.visible = rest.length > 3;
+    this.frame = frame;
     this.request();
   }
 
-  focus(ft) {
-    this.target.set(0, 0, -ft);
+  focusRing(n) {
+    this.target.set(...this.frame(n)[0].c);
+    this.request();
+  }
+
+  // Vues rapides. Le tracé entier reste tres fin : ces vues servent a lire les courbes.
+  view(kind) {
+    if (kind === 'top') this.el = 89;
+    if (kind === 'side') {
+      this.el = 0;
+      const box = new THREE.Box3().setFromBufferAttribute(this.mesh.geometry.getAttribute('position'));
+      const size = box.getSize(new THREE.Vector3());
+      this.az = (Math.atan2(size.z, size.x) * 180) / Math.PI;
+    }
+    if (kind === 'all') {
+      const box = new THREE.Box3().setFromBufferAttribute(this.mesh.geometry.getAttribute('position'));
+      if (this.rest.visible) box.union(new THREE.Box3().setFromBufferAttribute(this.rest.geometry.getAttribute('position')));
+      box.getCenter(this.target);
+      this.dist = box.getSize(new THREE.Vector3()).length() * 1.15;
+      this.el = 55;
+    }
     this.request();
   }
 
@@ -344,7 +409,7 @@ export class Tunnel3D {
   }
 
   zoom(ratio) {
-    this.dist = Math.max(4, Math.min(8000, this.dist / ratio));
+    this.dist = Math.max(4, Math.min(80000, this.dist / ratio));
     this.request();
   }
 
@@ -369,7 +434,7 @@ export class Tunnel3D {
     this.camera.lookAt(this.target);
   }
 
-  // Position le long du tunnel sous le doigt, ou null a cote du tunnel.
+  // Anneau sous le doigt, ou null a cote du tunnel.
   hit(clientX, clientY) {
     const b = this.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - b.left) / b.width) * 2 - 1, -((clientY - b.top) / b.height) * 2 + 1);
@@ -377,7 +442,7 @@ export class Tunnel3D {
     this.camera.updateMatrixWorld();
     this.ray.setFromCamera(ndc, this.camera);
     const [first] = this.ray.intersectObject(this.mesh);
-    return first ? -first.point.z : null;
+    return first ? this.triRing[first.faceIndex] : null;
   }
 
   request() {

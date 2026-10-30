@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Layout, clock, crackLength, fmtLen, fmtStation, makeGeometry, toFt } from '../js/geometry.js';
+import { AxisPath, Layout, clock, crackLength, fmtLen, fmtStation, makeGeometry, toFt } from '../js/geometry.js';
 import { mergeRFR, parseRFR, stationFt } from '../js/rfr.js';
 import {
   TEMPLATE, normalizeProject, parseSegments, parseTunnels, parseTypes, segmentsText, tunnelsText, typesText,
@@ -39,6 +39,21 @@ test('projet en metres converti en interne', () => {
   const p = normalizeProject({ ...fixture, id: 'y', unit: 'm', circumference: 20, ringTypes: { L: { material: 'concrete', width: 1.5 }, M: { material: 'fiber', width: 1.2 } } });
   assert.ok(Math.abs(makeGeometry(p).circ - 65.617) < 0.001);
   assert.ok(Math.abs(toFt(1.5, 'm') - 4.92126) < 0.001);
+});
+
+test('trace : abscisse, centre au-dessus de l axe et coordonnees du guidage', () => {
+  const a = new AxisPath({ points: [[100, 200, 10], [100, 300, 10], [200, 300, 10]], height: 9, coordScale: 2 });
+  assert.equal(a.length, 200);
+  assert.deepEqual(a.at(50), [-100 + 100, 9 - 0 + 0 + 0, -(250 - 300)].map((v, i) => (i === 0 ? -0 + 0 : v)).map((v) => v + 0));
+  assert.deepEqual(a.tangent(50), [0, 0, -1]);
+  assert.deepEqual(a.tangent(150), [1, 0, 0]);
+  assert.deepEqual(a.fromSurvey([50, 150, 5]), [0, 0, -0]);
+});
+
+test('RFR : coordonnees des anneaux conservees', () => {
+  const p = parseRFR('AnnNum,PM,CeX,CeY,CeZ,CleOpt,ClePil\n1,0,10,20,30,1,1\n2,1,NaN,NaN,NaN,1,1\n', TEMPLATE.rfr);
+  assert.deepEqual(p.rings[0].ce, [10, 20, 30]);
+  assert.equal(p.rings[1].ce, undefined);
 });
 
 test('position horaire', () => {

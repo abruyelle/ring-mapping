@@ -12,6 +12,7 @@ export function parseRFR(text, cols, keyPositions = 12) {
   if (a < 0 || b < 0 || o < 0 || p < 0) throw new Error('err.rfrColumns');
   // Le decalage de chainage est parfois ajoute a la main juste apres RingState.
   const extra = parseFloat(head[head.indexOf('RingState') + 1]);
+  const ce = ['CeX', 'CeY', 'CeZ'].map((c) => head.indexOf(c));
   const rings = [];
   for (const line of lines.slice(1)) {
     const c = line.split(sep);
@@ -19,7 +20,10 @@ export function parseRFR(text, cols, keyPositions = 12) {
     const key = Number(c[p]);
     if (!(key >= 1 && key <= keyPositions)) break; // lignes suivantes : anneaux non poses
     if (rings.length && n !== rings[rings.length - 1].n + 1) throw new Error('err.rfrGap');
-    rings.push({ n, key, opt: Number(c[o]), pm: parseFloat(c[b].replace(',', '.')) });
+    const ring = { n, key, opt: Number(c[o]), pm: parseFloat(c[b].replace(',', '.')) };
+    const xyz = ce.map((i) => parseFloat(String(c[i]).replace(',', '.')));
+    if (xyz.every(Number.isFinite) && xyz[0]) ring.ce = xyz;
+    rings.push(ring);
   }
   if (!rings.length) throw new Error('err.rfrNone');
   return { rings, offsetM: head.includes('RingState') && Number.isFinite(extra) ? extra : null };
@@ -36,7 +40,7 @@ export function mergeRFR(existing, parsed, tunnel, now) {
     if (!old) added++;
     else if (old.key !== r.key) corrected.push(r.n);
     rings.push({
-      tunnel, n: r.n, key: r.key, opt: r.opt, pm: r.pm,
+      tunnel, n: r.n, key: r.key, opt: r.opt, pm: r.pm, ...(r.ce ? { ce: r.ce } : {}),
       date: old?.date ?? '', by: old?.by ?? '', source: 'rfr', updatedAt: now,
     });
   }

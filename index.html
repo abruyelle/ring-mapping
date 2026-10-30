@@ -107,6 +107,11 @@
     </div>
     <div id="tunBox" hidden>
       <div class="tun-view"><canvas id="cTun"></canvas></div>
+      <div class="switch tun-views">
+        <button class="btn" type="button" data-tunview="all" data-i18n="tun.all"></button>
+        <button class="btn" type="button" data-tunview="top" data-i18n="tun.top"></button>
+        <button class="btn" type="button" data-tunview="side" data-i18n="tun.side"></button>
+      </div>
       <label class="tun-nav"><span id="tunLabel"></span><input id="tunRing" type="range" min="1" max="1" value="1"></label>
       <p class="empty small tun-note" data-i18n="tun.help"></p>
       <p class="empty tun-note" id="tunEmpty" data-i18n="tun.empty" hidden></p>

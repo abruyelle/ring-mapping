@@ -48,6 +48,7 @@ export function normalizeProject(raw) {
     return {
       id: String(t.id).trim(), name: String(t.name).trim(), total,
       offsetM: t.offsetM === null || t.offsetM === undefined || t.offsetM === '' ? null : num(t.offsetM, 'err.tunnels'), plan,
+      ...(t.axisStart === undefined ? {} : { axisStart: num(t.axisStart, 'err.tunnels'), axisDir: t.axisDir < 0 ? -1 : 1 }),
     };
   });
   if (!tunnels.length || new Set(tunnels.map((t) => t.id)).size !== tunnels.length) throw new Error('err.tunnels');
@@ -59,6 +60,7 @@ export function normalizeProject(raw) {
     format: FORMAT, version: 1, id: raw.id ? String(raw.id) : slug(name), name, unit: raw.unit,
     circumference, keyTaper, keyPositions, segments, ringTypes, tunnels,
     rfr: { ...TEMPLATE.rfr, ...raw.rfr },
+    ...(raw.axis?.points?.length > 1 ? { axis: raw.axis } : {}),
   };
 }
 

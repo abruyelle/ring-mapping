@@ -35,6 +35,56 @@ export function makeGeometry(p) {
   return { circ, taper, names, n, offsets, bounds, segAt };
 }
 
+// Trace du tunnel : position du centre et direction d'avancement a une abscisse de l'axe.
+// x = Est, y = hauteur, z = -Nord, autour du centre du trace pour garder la precision.
+export class AxisPath {
+  constructor(axis) {
+    const pts = axis.points;
+    const mid = pts[Math.floor(pts.length / 2)];
+    this.origin = mid;
+    this.height = axis.height ?? 0;
+    this.scale = axis.coordScale ?? 1;
+    this.pts = pts.map(([e, n, z]) => [e - mid[0], z - mid[2] + this.height, -(n - mid[1])]);
+    this.s = [0];
+    for (let i = 1; i < pts.length; i++) {
+      this.s.push(this.s[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1], pts[i][2] - pts[i - 1][2]));
+    }
+    this.length = this.s[this.s.length - 1];
+  }
+
+  index(s) {
+    let lo = 0;
+    let hi = this.s.length - 2;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (this.s[mid] <= s) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  }
+
+  at(s) {
+    const i = this.index(s);
+    const [a, b] = [this.pts[i], this.pts[i + 1]];
+    const f = (s - this.s[i]) / (this.s[i + 1] - this.s[i]);
+    return a.map((v, k) => v + (b[k] - v) * f);
+  }
+
+  tangent(s) {
+    const i = this.index(s);
+    const [a, b] = [this.pts[i], this.pts[i + 1]];
+    const d = b.map((v, k) => v - a[k]);
+    const l = Math.hypot(...d);
+    return d.map((v) => v / l);
+  }
+
+  // Coordonnees du guidage (x, y, z) ramenees dans le repere du trace.
+  fromSurvey([e, n, z]) {
+    const k = this.scale;
+    return [e * k - this.origin[0], z * k - this.origin[2], -(n * k - this.origin[1])];
+  }
+}
+
 export function clock(deg) {
   const h = Math.round(mod(deg, 360) / 30) % 12;
   return (h === 0 ? 12 : h) + 'h';

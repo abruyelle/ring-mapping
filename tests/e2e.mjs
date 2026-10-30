@@ -223,6 +223,14 @@ try {
   const opened = Number((await u.textContent('#v3dTitle')).replace(/\D/g, ''));
   assert.ok(opened >= 30 && opened <= 70, 'anneau ouvert pres de la cible : ' + opened);
   await u.click('#v3dClose');
+  await u.waitForFunction(() => document.querySelector('#v3d').hidden);
+  await u.locator('#cTun').scrollIntoViewIfNeeded();
+  await u.click('[data-tunview="all"]');
+  await u.waitForTimeout(400);
+  await u.screenshot({ path: join(out, '7-trace-ensemble.png') });
+  await u.click('[data-tunview="top"]');
+  await u.waitForTimeout(400);
+  await u.screenshot({ path: join(out, '7-trace-dessus.png') });
   await c5.close();
 
   // Vue 3D, zone tracee sur le segment, photos, rapport et echange entre appareils.
