@@ -35,6 +35,16 @@ export function drawStrip(ctx, o) {
       ctx.fillText(String(n), (xa + xb) / 2, top - 14);
     }
     const ring = rings.get(n);
+    if (ring) drawRing(ctx, geo, ring.key, xa, xb, Y, top, H, c, pxRing, k, o.overlay);
+    else if (!o.overlay) {
+      ctx.fillStyle = c.ghost;
+      ctx.fillRect(xa, top, xb - xa, H);
+      if (pxRing >= 8) {
+        ctx.strokeStyle = c.line;
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(xa, top, xb - xa, H);
+      }
+    }
     if (ring && k > 1) {
       // Vue d'un anneau : numero repete autour de la paroi, lisible depuis l'interieur.
       for (let d = -165; d < 180; d += 30) {
@@ -45,16 +55,6 @@ export function drawStrip(ctx, o) {
         ctx.fillStyle = o.overlay ? '#FFFFFF' : c.muted;
         ctx.fillText(String(n), 0, 0);
         ctx.restore();
-      }
-    }
-    if (ring) drawRing(ctx, geo, ring.key, xa, xb, Y, top, H, c, pxRing, k, o.overlay);
-    else if (!o.overlay) {
-      ctx.fillStyle = c.ghost;
-      ctx.fillRect(xa, top, xb - xa, H);
-      if (pxRing >= 8) {
-        ctx.strokeStyle = c.line;
-        ctx.lineWidth = 0.5;
-        ctx.strokeRect(xa, top, xb - xa, H);
       }
     }
   }
