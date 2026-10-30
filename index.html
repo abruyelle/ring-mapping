@@ -21,17 +21,19 @@
     </div>
     <div class="topctl">
       <div class="switch" id="tunnels" role="group" data-i18n-aria="aria.tunnel"></div>
+      <div class="prefs" data-s="data">
       <select id="project" aria-label="Project"></select>
       <button class="btn" id="bProject" type="button" data-i18n="p.edit"></button>
       <button class="btn" id="bNewProject" type="button" data-i18n="p.new"></button>
       <select id="lang" data-i18n-aria="pref.lang"><option value="fr">Français</option><option value="en">English</option></select>
       <select id="unit" data-i18n-aria="pref.unit"><option value="ft" data-i18n="unit.ft"></option><option value="m" data-i18n="unit.m"></option></select>
+      </div>
     </div>
   </header>
 
-  <div class="stats" id="stats"></div>
+  <div class="stats" id="stats" data-s="ring def"></div>
 
-  <div class="bar">
+  <div class="bar" data-s="ring">
     <div class="tools" role="group" data-i18n-aria="aria.tool">
       <button class="btn" type="button" data-tool="view" data-i18n="tool.view"></button>
       <button class="btn" type="button" data-tool="crack" data-i18n="tool.crack"></button>
@@ -47,7 +49,7 @@
   </div>
 
   <div class="main">
-    <section class="panel">
+    <section class="panel" data-s="ring">
       <div class="scroller" id="scroller"><div class="spacer" id="spacer"><canvas id="map" role="img" aria-label="Ring map"></canvas></div></div>
       <div class="legend">
         <span><i class="sw" style="background:var(--accent)"></i><span data-i18n="leg.key"></span></span>
@@ -61,8 +63,8 @@
     </section>
 
     <aside class="side">
-      <section class="panel box" id="detail" aria-live="polite"></section>
-      <section class="panel box">
+      <section class="panel box" id="detail" aria-live="polite" data-s="ring"></section>
+      <section class="panel box" data-s="data">
         <h2 data-i18n="pose.title"></h2>
         <label class="f"><span data-i18n="pose.rfr"></span> <input id="rfr" type="file" accept=".csv"></label>
         <p class="empty small" id="offset"></p>
@@ -78,7 +80,7 @@
     </aside>
   </div>
 
-  <section class="panel">
+  <section class="panel" data-s="def">
     <div class="tablehead">
       <h2><span data-i18n="reg.title"></span> <small id="count"></small></h2>
       <div class="switch">
@@ -97,7 +99,7 @@
     </tr></thead><tbody id="rows"></tbody></table></div>
   </section>
 
-  <section class="panel exports">
+  <section class="panel exports" data-s="data">
     <label class="f who"><span data-i18n="exp.author"></span> <input id="author" autocomplete="name"></label>
     <div class="switch">
       <button class="btn" id="bPrint" type="button" data-i18n="exp.pdf"></button>
@@ -108,6 +110,12 @@
     <p class="empty small helpline"><span data-i18n="exp.help"></span> <span id="version"></span></p>
   </section>
 </div>
+
+<nav id="tabs" data-i18n-aria="tab.aria">
+  <button type="button" data-screen="data" data-i18n="tab.data"></button>
+  <button type="button" data-screen="ring" data-i18n="tab.ring"></button>
+  <button type="button" data-screen="def" data-i18n="tab.def"></button>
+</nav>
 
 <dialog id="projDlg">
   <div class="box">

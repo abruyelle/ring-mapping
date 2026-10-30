@@ -4,6 +4,7 @@ import { fmtLen, fmtStation, lenValue } from './geometry.js';
 export const prefs = { lang: 'fr', unit: 'ft' };
 
 const FR = {
+  'tab.aria': 'Écrans', 'tab.data': 'Données', 'tab.ring': 'Anneaux', 'tab.def': 'Défauts',
   'app.note': 'Anneaux dépliés autour de la crown, clé en orange. Les données restent sur cet appareil.',
   'aria.tunnel': 'Tunnel', 'aria.tool': 'Outil',
   'pref.lang': 'Langue', 'pref.unit': 'Unités', 'unit.ft': 'Pieds US', 'unit.m': 'Mètres',
@@ -54,6 +55,7 @@ const FR = {
 };
 
 const EN = {
+  'tab.aria': 'Screens', 'tab.data': 'Data', 'tab.ring': 'Rings', 'tab.def': 'Defects',
   'app.note': 'Rings unrolled around the crown, key in orange. Data stays on this device.',
   'aria.tunnel': 'Tunnel', 'aria.tool': 'Tool',
   'pref.lang': 'Language', 'pref.unit': 'Units', 'unit.ft': 'US feet', 'unit.m': 'Meters',

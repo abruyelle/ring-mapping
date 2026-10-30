@@ -9,7 +9,7 @@ import {
   FORMAT, TEMPLATE, normalizeProject, parseSegments, parseTunnels, parseTypes, segmentsText, tunnelsText, typesText,
 } from './project.js';
 
-const APP_VERSION = 'v3'; // garder en phase avec VERSION dans sw.js
+const APP_VERSION = 'v4'; // garder en phase avec VERSION dans sw.js
 const AXIS = 76;
 const TOP = 34;
 const MAP_H = 400;
@@ -18,7 +18,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const today = () => new Date().toISOString().slice(0, 10);
 const message = (err) => (String(err.message).includes('.') && !err.message.includes(' ') ? tr(err.message) : err.message);
 
-const S = { tool: 'view', ringSel: null, sel: null, scale: 4, draft: null, author: '', moving: null };
+const S = { tool: 'view', ringSel: null, sel: null, scale: 4, draft: null, author: '', moving: null, screen: 'ring', scrollX: 0, front: false };
 let PROJECTS = [];
 let P = null; // projet courant
 let T = null; // tunnel courant
@@ -208,6 +208,7 @@ async function placeDefect(type, pts) {
   S.ringSel = Math.floor(pts[0].r);
   setTool('view');
   refresh();
+  showDetail();
 }
 
 canvas.addEventListener('pointerdown', (e) => {
@@ -251,6 +252,7 @@ canvas.addEventListener('click', (e) => {
   draw();
   detail();
   table();
+  if (f) showDetail();
 });
 scroller.addEventListener('scroll', draw, { passive: true });
 
@@ -260,6 +262,11 @@ function centerRing(n) {
 }
 
 function goToFront() {
+  // Carte cachee sur un autre ecran : on se placera au front quand elle reviendra.
+  if (!scroller.clientWidth) {
+    S.front = true;
+    return;
+  }
   if (T.lastRing) scroller.scrollLeft = T.layout.start[T.lastRing + 1] * S.scale - (scroller.clientWidth - AXIS) * 0.75;
   else scroller.scrollLeft = 0;
   draw();
@@ -378,22 +385,49 @@ function table() {
   $('count').textContent = tr(list.length > 1 ? 'reg.countN' : 'reg.count1', { n: list.length });
   $('rows').innerHTML = list.map((f) => {
     const r = defectRow(f, T);
-    return `<tr data-id="${esc(f.id)}" class="${f.id === S.sel ? 'on' : ''}"><td>${r.rings}</td><td>${r.station}</td><td>${esc(r.segment)}</td><td>${r.position}</td>
-      <td><i class="dot" style="background:var(--${f.type})"></i>${esc(r.type)}</td>
-      <td><span class="pill g${f.g}">${esc(r.severity)}</span></td><td>${r.lengthText ?? '–'}</td><td>${esc(r.status)}</td><td>${esc(r.date)}</td><td>${esc(r.by)}</td><td>${esc(r.note)}</td>
+    const c = (key, html) => `<td data-label="${esc(tr('col.' + key))}">${html}</td>`;
+    return `<tr data-id="${esc(f.id)}" class="${f.id === S.sel ? 'on' : ''}">${c('ring', r.rings)}${c('station', r.station)}${c('segment', esc(r.segment))}${c('position', r.position)}
+      ${c('type', `<i class="dot" style="background:var(--${f.type})"></i>${esc(r.type)}`)}
+      ${c('severity', `<span class="pill g${f.g}">${esc(r.severity)}</span>`)}${c('length', r.lengthText ?? '–')}${c('status', esc(r.status))}${c('date', esc(r.date))}${c('by', esc(r.by))}${c('note', esc(r.note))}
       <td class="acts"><button class="btn mini" type="button" data-act="edit">${tr('act.edit')}</button><button class="btn mini danger" type="button" data-act="delete">${tr('act.delete')}</button></td></tr>`;
   }).join('') || `<tr><td colspan="12" class="empty">${tr('reg.empty')}</td></tr>`;
 }
+
+const onSmallScreen = () => matchMedia('(max-width: 900px)').matches;
+const showDetail = () => onSmallScreen() && $('detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
 function selectDefect(f) {
   S.sel = f.id;
   S.ringSel = ringSpan(f)[0];
   setTool('view');
+  showScreen('ring');
   centerRing(S.ringSel);
   detail();
   table();
-  if (innerWidth <= 900) $('detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  showDetail();
 }
+
+// Sur telephone et tablette, un seul ecran a la fois. La carte cachee perd son defilement.
+function showScreen(name) {
+  if (scroller.clientWidth) S.scrollX = scroller.scrollLeft;
+  S.screen = name;
+  document.body.dataset.screen = name;
+  document.querySelectorAll('#tabs button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.screen === name));
+  if (!T || !scroller.clientWidth) return;
+  resize();
+  if (S.front) {
+    S.front = false;
+    goToFront();
+  } else scroller.scrollLeft = S.scrollX;
+  draw();
+}
+$('tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-screen]');
+  if (b) {
+    showScreen(b.dataset.screen);
+    scrollTo(0, 0);
+  }
+});
 
 $('rows').addEventListener('click', (e) => {
   const row = e.target.closest('tr[data-id]');
@@ -648,6 +682,7 @@ window.addEventListener('resize', resize);
   $('author').value = S.author;
   setTool('view');
   PROJECTS = await store.getMeta('projects', []);
+  showScreen(PROJECTS.length ? 'ring' : 'data');
   if (PROJECTS.length) await loadProject(await store.getMeta('project'));
   else openProject(null);
   if ('serviceWorker' in navigator) {

@@ -127,8 +127,51 @@ try {
   await p.setInputFiles('#pImport', projectFile);
   await p.waitForFunction(() => !document.querySelector('#projDlg').open);
   await p.waitForTimeout(200);
-  assert.ok(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'pas de debordement mobile');
-  await p.screenshot({ path: join(out, '4-mobile.png') });
+  const noOverflow = async () => {
+    const wide = await p.evaluate(() => [...document.querySelectorAll('#app *')]
+      .filter((e) => e.getBoundingClientRect().right > innerWidth + 0.5 && e.offsetParent && !e.closest('.scroller,.tablewrap,.tools'))
+      .slice(0, 6).map((e) => `${e.tagName}#${e.id}.${e.className} ${Math.round(e.getBoundingClientRect().right)}`));
+    if (wide.length) console.log('depasse :', wide);
+    return p.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
+  };
+
+  // Telephone : ecrans separes, l'import se fait sur Donnees et la carte se place au front.
+  assert.ok(await p.locator('#rfr').isVisible());
+  assert.equal(await p.locator('#map').isVisible(), false);
+  await p.setInputFiles('#rfr', rfr);
+  await p.waitForFunction(() => document.querySelector('#toast').textContent.length > 0);
+  assert.ok(await noOverflow(), 'debordement ecran donnees');
+  await p.screenshot({ path: join(out, '4-tel-donnees.png') });
+
+  await p.click('#tabs [data-screen="ring"]');
+  await p.waitForTimeout(200);
+  assert.ok(await p.locator('#map').isVisible());
+  assert.ok(await p.evaluate(() => document.getElementById('scroller').scrollLeft > 0), 'carte placee au front');
+  assert.ok(await p.evaluate(() => document.getElementById('map').width > 0));
+  assert.equal(await p.locator('#rfr').isVisible(), false);
+  const b = await p.locator('#map').boundingBox();
+  await p.tap('[data-tool="leak"]');
+  await p.touchscreen.tap(b.x + 150, b.y + 200);
+  await rowCount(1, p);
+  await p.waitForTimeout(500);
+  assert.ok(await p.locator('#dG').isVisible(), 'fiche visible apres un releve');
+  assert.ok(await noOverflow(), 'debordement ecran anneaux');
+  await p.screenshot({ path: join(out, '4-tel-anneaux.png') });
+
+  const kept = await p.evaluate(() => document.getElementById('scroller').scrollLeft);
+  await p.click('#tabs [data-screen="def"]');
+  await p.waitForTimeout(200);
+  assert.ok(await p.locator('#rows [data-act="edit"]').isVisible());
+  assert.equal(await p.locator('#map').isVisible(), false);
+  assert.ok(await noOverflow(), 'debordement ecran defauts');
+  await p.screenshot({ path: join(out, '4-tel-defauts.png') });
+  await p.click('#rows [data-act="edit"]');
+  await p.waitForTimeout(500);
+  assert.ok(await p.locator('#dG').isVisible(), 'modifier ouvre la fiche');
+  await p.click('#tabs [data-screen="def"]');
+  await p.click('#tabs [data-screen="ring"]');
+  await p.waitForTimeout(150);
+  assert.ok(Math.abs(await p.evaluate(() => document.getElementById('scroller').scrollLeft) - kept) < 400, 'position conservee');
 
   const tablet = await browser.newContext({ viewport: { width: 820, height: 1180 }, hasTouch: true });
   const pt = await tablet.newPage();
