@@ -234,6 +234,10 @@ try {
   await u.waitForTimeout(200);
   assert.match(await u.textContent('#tunLabel'), /Anneau 50/);
   await u.locator('#cTun').scrollIntoViewIfNeeded();
+  await u.waitForTimeout(250);
+  assert.ok(Number(await u.getAttribute('#tunOver', 'data-tags')) >= 3, 'numeros d anneaux affiches');
+  await u.screenshot({ path: join(out, '7-numeros.png') });
+  await u.locator('#cTun').scrollIntoViewIfNeeded();
   await u.waitForTimeout(200);
   const bt = await u.locator('#cTun').boundingBox();
   await u.mouse.click(bt.x + bt.width / 2, bt.y + bt.height / 2);

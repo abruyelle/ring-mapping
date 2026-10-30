@@ -376,6 +376,12 @@ export class Tunnel3D {
       if (t.lastRing) this.built.push(frame(t.lastRing)[1].c);
     }
     this.frame = frame;
+    // Point d'ancrage du numero, juste au-dessus de la crown de chaque anneau.
+    this.tags = [...t.rings.values()].sort((a, b) => a.n - b.n).map((r) => {
+      const [fa, fb] = frame(r.n);
+      const c = fa.c.map((v, k) => (v + fb.c[k]) / 2);
+      return { n: r.n, p: [c[0], c[1] + R * 1.14, c[2]] };
+    });
     this.request();
   }
 
@@ -470,8 +476,11 @@ export class Tunnel3D {
     const ctx = c.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    if (!this.trace) return;
     const v = new THREE.Vector3();
+    if (!this.trace) {
+      this.drawTags(ctx, v, w, h);
+      return;
+    }
     const stroke = (pts, color, width) => {
       ctx.beginPath();
       let pen = false;
@@ -495,5 +504,45 @@ export class Tunnel3D {
     stroke(this.trace, '#FFD23F', 2.5);
     stroke(this.built, '#E8541E', 5);
     ctx.globalAlpha = 1;
+    this.drawTags(ctx, v, w, h);
+  }
+
+  // Numeros d'anneaux : tous de pres, puis un sur 2, 5, 10... selon la place a l'ecran.
+  drawTags(ctx, v, w, h) {
+    const tags = this.tags ?? [];
+    if (tags.length < 1) return;
+    let near = 0;
+    let best = Infinity;
+    tags.forEach((t, i) => {
+      const d = (t.p[0] - this.target.x) ** 2 + (t.p[2] - this.target.z) ** 2;
+      if (d < best) {
+        best = d;
+        near = i;
+      }
+    });
+    const screen = (p) => {
+      v.set(...p).project(this.camera);
+      return Math.abs(v.z) > 1 ? null : [((v.x + 1) / 2) * w, ((1 - v.y) / 2) * h];
+    };
+    const a = screen(tags[near].p);
+    const b = screen(tags[Math.min(near + 1, tags.length - 1)].p) ?? a;
+    const gap = a && b ? Math.hypot(a[0] - b[0], a[1] - b[1]) : 0;
+    const step = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000].find((s) => gap * s >= 34) ?? 1000;
+    ctx.font = '600 12px Consolas, monospace';
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#23282D';
+    ctx.fillStyle = '#FFFFFF';
+    let shown = 0;
+    const last = tags[tags.length - 1].n;
+    for (const t of tags) {
+      if (t.n % step !== 0 && t.n !== last) continue;
+      const s = screen(t.p);
+      if (!s || s[0] < 0 || s[0] > w || s[1] < 0 || s[1] > h) continue;
+      ctx.strokeText(t.n, s[0], s[1]);
+      ctx.fillText(t.n, s[0], s[1]);
+      shown++;
+    }
+    this.overlay.dataset.tags = shown;
   }
 }

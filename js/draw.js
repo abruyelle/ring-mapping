@@ -35,6 +35,18 @@ export function drawStrip(ctx, o) {
       ctx.fillText(String(n), (xa + xb) / 2, top - 14);
     }
     const ring = rings.get(n);
+    if (ring && k > 1) {
+      // Vue d'un anneau : numero repete autour de la paroi, lisible depuis l'interieur.
+      for (let d = -165; d < 180; d += 30) {
+        ctx.save();
+        ctx.transform(0, 1, 1, 0, (xa + xb) / 2 - 16 * k, Y(d));
+        ctx.font = `600 ${14 * k}px Consolas, monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = o.overlay ? '#FFFFFF' : c.muted;
+        ctx.fillText(String(n), 0, 0);
+        ctx.restore();
+      }
+    }
     if (ring) drawRing(ctx, geo, ring.key, xa, xb, Y, top, H, c, pxRing, k, o.overlay);
     else if (!o.overlay) {
       ctx.fillStyle = c.ghost;
