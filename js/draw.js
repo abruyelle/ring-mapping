@@ -45,18 +45,6 @@ export function drawStrip(ctx, o) {
         ctx.strokeRect(xa, top, xb - xa, H);
       }
     }
-    if (ring && k > 1) {
-      // Vue d'un anneau : numero repete autour de la paroi, lisible depuis l'interieur.
-      for (let d = -165; d < 180; d += 30) {
-        ctx.save();
-        ctx.transform(0, 1, 1, 0, (xa + xb) / 2 - 16 * k, Y(d));
-        ctx.font = `600 ${14 * k}px Consolas, monospace`;
-        ctx.textAlign = 'center';
-        ctx.fillStyle = o.overlay ? '#FFFFFF' : c.muted;
-        ctx.fillText(String(n), 0, 0);
-        ctx.restore();
-      }
-    }
   }
 
   ctx.setLineDash([6, 5]);
@@ -71,6 +59,23 @@ export function drawStrip(ctx, o) {
   }
   ctx.globalAlpha = 1;
   ctx.setLineDash([]);
+
+  if (k > 1) {
+    // Vue d'un anneau : numero en gras a 3 h et 9 h, lisible depuis l'interieur.
+    for (let n = a; n <= b; n++) {
+      if (!rings.has(n)) continue;
+      const xm = (X(layout.start[n]) + X(layout.start[n + 1])) / 2;
+      for (const d of [-90, 90]) {
+        ctx.save();
+        ctx.transform(0, 1, 1, 0, xm - 12 * k, Y(d));
+        ctx.font = `700 ${18 * k}px Consolas, monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillStyle = o.overlay ? '#FFFFFF' : c.fg;
+        ctx.fillText(String(n), 0, 0);
+        ctx.restore();
+      }
+    }
+  }
 
   if (o.selRing && o.selRing >= a && o.selRing <= b) {
     ctx.strokeStyle = c.fg;

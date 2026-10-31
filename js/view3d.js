@@ -376,11 +376,11 @@ export class Tunnel3D {
       if (t.lastRing) this.built.push(frame(t.lastRing)[1].c);
     }
     this.frame = frame;
-    // Point d'ancrage du numero, juste au-dessus de la crown de chaque anneau.
+    // Ancrages du numero sur la paroi, a 3 h et 9 h de chaque anneau.
     this.tags = [...t.rings.values()].sort((a, b) => a.n - b.n).map((r) => {
       const [fa, fb] = frame(r.n);
       const c = fa.c.map((v, k) => (v + fb.c[k]) / 2);
-      return { n: r.n, p: [c[0], c[1] + R * 1.14, c[2]] };
+      return { n: r.n, c, sides: [90, -90].map((a) => wall({ c, d: fa.d }, a, 0)) };
     });
     this.request();
   }
@@ -514,7 +514,7 @@ export class Tunnel3D {
     let near = 0;
     let best = Infinity;
     tags.forEach((t, i) => {
-      const d = (t.p[0] - this.target.x) ** 2 + (t.p[2] - this.target.z) ** 2;
+      const d = (t.c[0] - this.target.x) ** 2 + (t.c[2] - this.target.z) ** 2;
       if (d < best) {
         best = d;
         near = i;
@@ -524,24 +524,29 @@ export class Tunnel3D {
       v.set(...p).project(this.camera);
       return Math.abs(v.z) > 1 ? null : [((v.x + 1) / 2) * w, ((1 - v.y) / 2) * h];
     };
-    const a = screen(tags[near].p);
-    const b = screen(tags[Math.min(near + 1, tags.length - 1)].p) ?? a;
+    const a = screen(tags[near].c);
+    const b = screen(tags[Math.min(near + 1, tags.length - 1)].c) ?? a;
     const gap = a && b ? Math.hypot(a[0] - b[0], a[1] - b[1]) : 0;
     const step = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000].find((s) => gap * s >= 34) ?? 1000;
-    ctx.font = '600 12px Consolas, monospace';
+    ctx.font = '700 13px Consolas, monospace';
     ctx.textAlign = 'center';
     ctx.lineWidth = 3;
     ctx.strokeStyle = '#23282D';
     ctx.fillStyle = '#FFFFFF';
     let shown = 0;
     const last = tags[tags.length - 1].n;
+    const cam = this.camera.position.toArray();
     for (const t of tags) {
       if (t.n % step !== 0 && t.n !== last) continue;
-      const s = screen(t.p);
-      if (!s || s[0] < 0 || s[0] > w || s[1] < 0 || s[1] > h) continue;
-      ctx.strokeText(t.n, s[0], s[1]);
-      ctx.fillText(t.n, s[0], s[1]);
-      shown++;
+      for (const p of t.sides) {
+        // Seul le cote tourne vers la camera : l'autre est derriere l'anneau.
+        if ([0, 1, 2].reduce((sum, k) => sum + (cam[k] - t.c[k]) * (p[k] - t.c[k]), 0) < 0) continue;
+        const s = screen(p);
+        if (!s || s[0] < 0 || s[0] > w || s[1] < 0 || s[1] > h) continue;
+        ctx.strokeText(t.n, s[0], s[1]);
+        ctx.fillText(t.n, s[0], s[1]);
+        shown++;
+      }
     }
     this.overlay.dataset.tags = shown;
   }
