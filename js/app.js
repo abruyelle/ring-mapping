@@ -1,4 +1,4 @@
-import { AxisPath, Layout, crackLength, makeGeometry, toFt } from './geometry.js';
+import { AxisPath, Layout, clock, crackLength, makeGeometry, toFt } from './geometry.js';
 import { LEGACY_STATUS, STATUS, TYPES } from './config.js';
 import { mergeRFR, parseRFR, stationFt } from './rfr.js';
 import { store } from './store.js';
@@ -11,7 +11,7 @@ import {
   FORMAT, TEMPLATE, normalizeProject, parseSegments, parseTunnels, parseTypes, segmentsText, tunnelsText, typesText,
 } from './project.js';
 
-const APP_VERSION = 'v11'; // garder en phase avec VERSION dans sw.js
+const APP_VERSION = 'v12'; // garder en phase avec VERSION dans sw.js
 const AXIS = 76;
 const TOP = 34;
 const MAP_H = 400;
@@ -20,7 +20,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const today = () => new Date().toISOString().slice(0, 10);
 const message = (err) => (String(err.message).includes('.') && !err.message.includes(' ') ? tr(err.message) : err.message);
 
-const S = { tool: 'view', ringSel: null, sel: null, scale: 4, draft: null, author: '', moving: null, screen: 'ring', scrollX: 0, front: false };
+const S = { tool: 'view', ringSel: null, sel: null, seg: null, scale: 4, draft: null, author: '', moving: null, screen: 'ring', scrollX: 0, front: false };
 let PROJECTS = [];
 let P = null; // projet courant
 let T = null; // tunnel courant
@@ -315,6 +315,23 @@ function ringDetail(r) {
     ${r.source === 'rfr' ? '' : `<label class="f">${tr('d.fixKey')} <select id="rK">${keyOptions(r.key)}</select></label>`}`;
 }
 
+// Defauts dont un point tombe sur ce segment.
+function segDefects(n, i) {
+  const key = T.rings.get(n).key;
+  return T.defects.filter((f) => f.pts.some((p) => Math.floor(p.r) === n && T.geo.segIndex(key, p.d, p.r - n) === i));
+}
+
+function segDetail(r, i) {
+  const b = T.geo.bounds(r.key);
+  const list = segDefects(r.n, i);
+  return `<h2>${tr('d.ring')} ${r.n} · ${esc(T.geo.names[i])}</h2>
+    <dl class="kv"><dt>${tr('col.segment')}</dt><dd>${esc(T.geo.names[i])}</dd><dt>${tr('col.position')}</dt><dd>${clock((b[i] + b[i + 1]) / 2)}</dd>
+    <dt>${tr('col.station')}</dt><dd>${T.station(r.n)}</dd><dt>${tr('d.keySet')}</dt><dd>K${r.key}</dd>
+    <dt>${tr('d.defects')}</dt><dd>${list.length}</dd></dl>
+    <div class="switch">${list.map((f) => `<button class="btn" type="button" data-def="${esc(f.id)}">${esc(tr('tool.' + f.type))}</button>`).join('')}</div>
+    <p class="empty">${tr('d.segHint')}</p>`;
+}
+
 function defectForm(f) {
   const row = defectRow(f, T);
   const types = Object.keys(TYPES).filter((k) => !!TYPES[k].line === !!TYPES[f.type].line);
@@ -380,6 +397,11 @@ function detail() {
     return;
   }
   const r = T.rings.get(S.ringSel);
+  if (r && S.seg?.n === r.n) {
+    box.innerHTML = segDetail(r, S.seg.i);
+    box.querySelectorAll('[data-def]').forEach((e) => (e.onclick = () => selectDefect(T.defects.find((x) => x.id === e.dataset.def))));
+    return;
+  }
   if (r) {
     box.innerHTML = ringDetail(r);
     if ($('d3d')) $('d3d').onclick = () => open3D(r.n, 0);
@@ -417,6 +439,8 @@ const showDetail = () => onSmallScreen() && $('detail').scrollIntoView({ behavio
 
 function selectDefect(f) {
   S.sel = f.id;
+  S.seg = null;
+  markSeg();
   S.ringSel = ringSpan(f)[0];
   setTool('view');
   showScreen('ring');
@@ -560,12 +584,23 @@ function paint3D(ctx, fromFt, toFt, w, h) {
   });
 }
 
+function markSeg() {
+  if (!S.v3d) return;
+  const r = S.seg && T.rings.get(S.seg.n);
+  if (!r) return R3.setSegment(null);
+  const { n, i } = S.seg;
+  const b = T.geo.bounds(r.key);
+  const O = T.geo.offsets;
+  R3.setSegment({ from: T.layout.start[n], to: T.layout.start[n + 1], a: b[i], b: b[i + 1], oa: O[i], ob: O[i + 1] });
+}
+
 function show3D(n, deg) {
   const a = Math.max(1, n - 1);
   const b = Math.min(T.total, n + 1);
   const s = T.layout.start;
   S.ringSel = n;
   R3.setRange(s[a], s[b + 1], s[n], s[n + 1], T.geo.circ / (2 * Math.PI));
+  markSeg();
   if (deg !== undefined) R3.look(deg);
   $('v3dTitle').textContent = `${tr('d.ring')} ${n}`;
   $('v3dPrev').disabled = !T.rings.has(n - 1);
@@ -684,8 +719,10 @@ $('arFreeze').onclick = freezeCamera;
 function close3D() {
   S.v3d = false;
   S.draft = null;
+  S.seg = null;
   fingers.clear();
   R3.setDraft(null);
+  R3.setSegment(null);
   stopCamera();
   $('v3d').hidden = true;
   document.querySelector('.side').prepend($('detail'));
@@ -693,9 +730,9 @@ function close3D() {
   refresh();
 }
 
-function hit3D(e) {
-  const h = R3.hit(e.clientX, e.clientY);
-  return h && { r: T.layout.rOf(Math.max(0, Math.min(T.layout.length - 0.001, h.ft))), d: Math.max(-180, Math.min(180, h.d)) };
+function hit3D(e, solid) {
+  const h = R3.hit(e.clientX, e.clientY, solid);
+  return h && { r: T.layout.rOf(Math.max(0, Math.min(T.layout.length - 0.001, h.ft))), d: Math.max(-180, Math.min(180, h.d)), outside: h.outside };
 }
 
 const draft3D = () => R3.setDraft(S.draft.map((p) => [T.layout.ftOf(p.r), p.d]));
@@ -783,13 +820,18 @@ function release(e) {
     return;
   }
   if (S.tool !== 'view' || gesture?.moved) return;
-  const p = hit3D(e);
+  const p = hit3D(e, true);
   if (!p) return;
-  const f = pick3D(p);
+  const f = p.outside ? null : pick3D(p);
   S.sel = f?.id ?? null;
   const n = f ? ringSpan(f)[0] : Math.floor(p.r);
+  const r = !f && T.rings.get(n);
+  const i = r ? T.geo.segIndex(r.key, p.d, p.r - n) : null;
+  // Un second toucher sur le meme segment le deselectionne.
+  S.seg = r && !(S.seg?.n === n && S.seg.i === i) ? { n, i } : null;
   if (T.rings.has(n) && n !== S.ringSel) show3D(n);
   else {
+    markSeg();
     draw();
     detail();
     table();
@@ -802,8 +844,8 @@ c3.addEventListener('wheel', (e) => {
   R3.zoom(e.deltaY < 0 ? 1.1 : 0.9);
 }, { passive: false });
 $('v3dClose').onclick = close3D;
-$('v3dPrev').onclick = () => { S.sel = null; show3D(S.ringSel - 1); };
-$('v3dNext').onclick = () => { S.sel = null; show3D(S.ringSel + 1); };
+$('v3dPrev').onclick = () => { S.sel = null; S.seg = null; show3D(S.ringSel - 1); };
+$('v3dNext').onclick = () => { S.sel = null; S.seg = null; show3D(S.ringSel + 1); };
 new ResizeObserver(() => S.v3d && R3.resize()).observe(c3);
 
 // --- Tunnel 3D -----------------------------------------------------------
@@ -877,11 +919,15 @@ function tRelease(e) {
     return;
   }
   if (tGesture?.moved) return;
-  const n = TUN.hit(e.clientX, e.clientY);
-  if (n === null || !T.rings.has(n)) return;
+  const h = TUN.hit(e.clientX, e.clientY);
+  const r = h && T.rings.get(h.n);
+  if (!r) return;
+  const b = T.geo.bounds(r.key);
+  S.sel = null;
+  S.seg = h;
   showScreen('ring');
-  centerRing(n);
-  open3D(n, 0);
+  centerRing(h.n);
+  open3D(h.n, (b[h.i] + b[h.i + 1]) / 2);
 }
 cT.addEventListener('pointerup', tRelease);
 cT.addEventListener('pointercancel', () => tFingers.clear());

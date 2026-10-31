@@ -35,6 +35,17 @@ test('cle etroite et nombre de positions libres', () => {
   assert.equal(g.segAt(4, 105), 'A');
 });
 
+test('segment sous un point, joint biseaute et passage de -180 a 180 compris', () => {
+  const edge = (u) => geo.bounds(12)[1] + geo.offsets[1] * (1 - 2 * u);
+  for (const u of [0, 0.5, 1]) {
+    assert.equal(geo.segIndex(12, edge(u) - 0.01, u), 0);
+    assert.equal(geo.segIndex(12, edge(u) + 0.01, u), 1);
+  }
+  assert.equal(geo.segIndex(6, 180), 0);
+  assert.equal(geo.segIndex(6, -180), 0);
+  assert.deepEqual([0, 60, 120, 180, -120, -60].map((d) => geo.names[geo.segIndex(12, d)]), ['K', 'D', 'E', 'A', 'B', 'C']);
+});
+
 test('projet en metres converti en interne', () => {
   const p = normalizeProject({ ...fixture, id: 'y', unit: 'm', circumference: 20, ringTypes: { L: { material: 'concrete', width: 1.5 }, M: { material: 'fiber', width: 1.2 } } });
   assert.ok(Math.abs(makeGeometry(p).circ - 65.617) < 0.001);

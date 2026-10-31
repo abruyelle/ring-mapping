@@ -244,6 +244,8 @@ try {
   await u.waitForSelector('#v3d:not([hidden])');
   const opened = Number((await u.textContent('#v3dTitle')).replace(/\D/g, ''));
   assert.ok(opened >= 30 && opened <= 70, 'anneau ouvert pres de la cible : ' + opened);
+  await u.waitForSelector('#detail .kv');
+  assert.match(await u.textContent('#detail h2'), /·/, 'segment touche selectionne a l ouverture');
   await u.click('#v3dClose');
   await u.waitForFunction(() => document.querySelector('#v3d').hidden);
   await u.locator('#cTun').scrollIntoViewIfNeeded();
@@ -325,6 +327,22 @@ try {
   await q.waitForTimeout(300);
   await q.screenshot({ path: join(out, '6-modele.png') });
   assert.equal(await q.evaluate(() => document.querySelector('#arVideo').srcObject), null, 'camera coupee');
+
+  // Selection d'un segment : exterieur du modele, puis interieur, et second toucher pour deselectionner.
+  await q.click('#v3d [data-tool="view"]');
+  await q.mouse.click(b3.x + 925, b3.y + 425);
+  await q.waitForFunction(() => document.querySelector('#detail h2').textContent.includes('·'));
+  await q.waitForTimeout(300);
+  await q.screenshot({ path: join(out, '6-segment-modele.png') });
+  await q.click('[data-m3d="inside"]');
+  await q.waitForTimeout(300);
+  await q.mouse.click(cx + 300, cy + 100);
+  await q.waitForTimeout(300);
+  await q.screenshot({ path: join(out, '6-segment-interieur.png') });
+  assert.match(await q.textContent('#detail h2'), /Anneau 100 ·/, 'segment selectionne a l interieur');
+  await q.mouse.click(cx + 300, cy + 100);
+  await q.waitForFunction(() => !document.querySelector('#detail h2').textContent.includes('·'));
+  await q.click('[data-m3d="model"]');
 
   await q.click('#v3dNext');
   await q.waitForFunction(() => document.querySelector('#v3dTitle').textContent.includes('101'));

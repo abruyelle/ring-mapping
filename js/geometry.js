@@ -32,7 +32,16 @@ export function makeGeometry(p) {
     return names[n - 1];
   }
 
-  return { circ, taper, names, n, offsets, bounds, segAt };
+  // Segment sous un point de l'anneau, joints biseautes compris. u : 0 a 1 le long de l'anneau.
+  function segIndex(key, deg, u = 0.5) {
+    const b = bounds(key);
+    const edge = (i) => b[i] + offsets[i] * (1 - 2 * u);
+    const v = mod(deg - edge(0), 360);
+    for (let i = 1; i < n; i++) if (v < edge(i) - edge(0)) return i - 1;
+    return n - 1;
+  }
+
+  return { circ, taper, names, n, offsets, bounds, segAt, segIndex };
 }
 
 // Trace du tunnel : position du centre et direction d'avancement a une abscisse de l'axe.

@@ -47,6 +47,15 @@ export class Ring3D {
     this.scene.add(this.mesh, this.model);
     this.draft = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xc41e3a }));
     this.scene.add(this.draft);
+    const glow = new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false });
+    this.markIn = new THREE.Mesh(new THREE.BufferGeometry(), glow); // segment choisi, intrados
+    this.markOut = new THREE.Mesh(new THREE.BufferGeometry(), glow); // et extrados du modele
+    this.scene.add(this.markIn);
+    this.model.add(this.markOut);
+    this.markIn.visible = false;
+    this.markOut.visible = false;
+    this.markIn.renderOrder = 1; // apres la paroi, transparente elle aussi
+    this.markOut.renderOrder = 1;
     this.ray = new THREE.Raycaster();
     this.base = new THREE.Quaternion();
     this.delta = new THREE.Quaternion();
@@ -97,7 +106,7 @@ export class Ring3D {
 
   // Anneau selectionne de ringFrom a ringTo, voisins compris de fromFt a toFt.
   setRange(fromFt, toFt, ringFrom, ringTo, radius) {
-    Object.assign(this, { fromFt, toFt, centerFt: (ringFrom + ringTo) / 2, radius });
+    Object.assign(this, { fromFt, toFt, ringFrom, ringTo, centerFt: (ringFrom + ringTo) / 2, radius });
     this.mesh.geometry = this.tube(fromFt, toFt, 1);
     this.inner.geometry = this.tube(ringFrom, ringTo, 1);
     this.outer.geometry = this.tube(ringFrom, ringTo, THICK);
@@ -159,7 +168,34 @@ export class Ring3D {
     this.request();
   }
 
-  hit(clientX, clientY) {
+  // Surligne un segment : bords a..b, decales de oa..ob par le biais des joints.
+  setSegment(s) {
+    this.markIn.visible = !!s;
+    this.markOut.visible = !!s;
+    if (s) {
+      const steps = 24;
+      for (const [mesh, scale] of [[this.markIn, 0.995], [this.markOut, THICK * 1.002]]) {
+        const pos = [];
+        const index = [];
+        for (let k = 0; k <= steps; k++) {
+          const f = k / steps;
+          const d = s.a + f * (s.b - s.a);
+          const o = s.oa + f * (s.ob - s.oa);
+          pos.push(...this.world(s.from, d + o, scale), ...this.world(s.to, d - o, scale));
+          if (k < steps) index.push(k * 2, k * 2 + 1, k * 2 + 2, k * 2 + 1, k * 2 + 3, k * 2 + 2);
+        }
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        g.setIndex(index);
+        mesh.geometry.dispose();
+        mesh.geometry = g;
+      }
+    }
+    this.request();
+  }
+
+  // solid : accepte aussi l'exterieur du modele, pour choisir un segment sans y dessiner.
+  hit(clientX, clientY, solid = false) {
     const b = this.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - b.left) / b.width) * 2 - 1, -((clientY - b.top) / b.height) * 2 + 1);
     this.aim();
@@ -167,6 +203,11 @@ export class Ring3D {
     this.ray.setFromCamera(ndc, this.camera);
     const targets = this.mode === 'model' ? [this.inner, this.outer, this.endA, this.endB] : [this.mesh];
     const [first] = this.ray.intersectObjects(targets);
+    if (first && solid && this.mode === 'model' && first.object !== this.inner) {
+      const { x, y, z } = first.point;
+      const ft = Math.max(this.ringFrom + 0.01, Math.min(this.ringTo - 0.01, this.centerFt - z));
+      return { ft, d: (Math.atan2(x, y) * 180) / Math.PI, outside: true };
+    }
     if (!first?.uv || (this.mode === 'model' && first.object !== this.inner)) return null;
     return { ft: this.fromFt + first.uv.x * (this.toFt - this.fromFt), d: (1 - first.uv.y) * 360 - 180 };
   }
@@ -307,6 +348,7 @@ export class Tunnel3D {
     const col = [];
     const index = [];
     this.triRing = [];
+    this.triSeg = [];
     const paint = [c.accent, c.segB, c.seg].map((h) => new THREE.Color(h));
     const inset = 0.5; // laisse apparaitre les joints
     const gap = 0.15;
@@ -336,6 +378,7 @@ export class Tunnel3D {
             const q = base + k * 2;
             index.push(q, q + 1, q + 2, q + 1, q + 3, q + 2);
             this.triRing.push(ring.n, ring.n);
+            this.triSeg.push(i, i);
           }
         }
       }
@@ -447,7 +490,7 @@ export class Tunnel3D {
     this.camera.lookAt(this.target);
   }
 
-  // Anneau sous le doigt, ou null a cote du tunnel.
+  // Anneau et segment sous le doigt, ou null a cote du tunnel.
   hit(clientX, clientY) {
     const b = this.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - b.left) / b.width) * 2 - 1, -((clientY - b.top) / b.height) * 2 + 1);
@@ -455,7 +498,7 @@ export class Tunnel3D {
     this.camera.updateMatrixWorld();
     this.ray.setFromCamera(ndc, this.camera);
     const [first] = this.ray.intersectObject(this.mesh);
-    return first ? this.triRing[first.faceIndex] : null;
+    return first ? { n: this.triRing[first.faceIndex], i: this.triSeg[first.faceIndex] } : null;
   }
 
   request() {
