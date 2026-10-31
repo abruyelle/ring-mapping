@@ -571,11 +571,11 @@ export class Tunnel3D {
     const b = screen(tags[Math.min(near + 1, tags.length - 1)].c) ?? a;
     const gap = a && b ? Math.hypot(a[0] - b[0], a[1] - b[1]) : 0;
     const step = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000].find((s) => gap * s >= 34) ?? 1000;
-    ctx.font = '700 13px Consolas, monospace';
+    ctx.font = '900 14px Impact, "Arial Narrow", "Roboto Condensed", sans-serif';
     ctx.textAlign = 'center';
     ctx.lineWidth = 3;
-    ctx.strokeStyle = '#23282D';
-    ctx.fillStyle = '#FFFFFF';
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.fillStyle = '#111111';
     let shown = 0;
     const last = tags[tags.length - 1].n;
     const cam = this.camera.position.toArray();

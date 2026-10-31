@@ -61,16 +61,23 @@ export function drawStrip(ctx, o) {
   ctx.setLineDash([]);
 
   if (k > 1) {
-    // Vue d'un anneau : numero en gras a 3 h et 9 h, lisible depuis l'interieur.
+    // Vue d'un anneau : numero peint a la bombe a 3 h et 9 h, horizontal, la tete vers la crown.
+    // La texture se regarde depuis l'interieur : chaque cote a son propre retournement.
     for (let n = a; n <= b; n++) {
       if (!rings.has(n)) continue;
-      const xm = (X(layout.start[n]) + X(layout.start[n + 1])) / 2;
-      for (const d of [-90, 90]) {
+      const [xa, xb] = [X(layout.start[n]), X(layout.start[n + 1])];
+      for (const [d, sx, sy] of [[90, -1, 1], [-90, 1, -1]]) {
         ctx.save();
-        ctx.transform(0, 1, 1, 0, xm - 12 * k, Y(d));
-        ctx.font = `700 ${18 * k}px Consolas, monospace`;
+        ctx.transform(sx, 0, 0, sy, (xa + xb) / 2, Y(d));
+        const size = 34 * k;
+        ctx.font = `900 ${size}px Impact, "Arial Narrow", "Roboto Condensed", sans-serif`;
         ctx.textAlign = 'center';
-        ctx.fillStyle = o.overlay ? '#FFFFFF' : c.fg;
+        ctx.textBaseline = 'middle';
+        const fit = Math.min(1, (0.85 * (xb - xa)) / ctx.measureText(String(n)).width);
+        ctx.scale(fit, fit);
+        ctx.fillStyle = o.overlay ? '#FFFFFF' : '#111111';
+        ctx.shadowColor = ctx.fillStyle;
+        ctx.shadowBlur = 3 * k; // bord flou de la peinture
         ctx.fillText(String(n), 0, 0);
         ctx.restore();
       }
@@ -137,8 +144,11 @@ function drawRing(ctx, geo, key, xa, xb, Y, top, H, c, pxRing, k, overlay) {
         ctx.fillStyle = overlay ? '#FFFFFF' : i === 0 ? c.bg : c.fg;
         if (k > 1) {
           // Vu de l'interieur, le tunnel defile vers le bas de l'ecran : le texte doit suivre.
+          // Le nom s'ecarte vers la crown quand il tomberait sous le numero peint a 3 h ou 9 h.
+          const dm = (b[i] + b[i + 1]) / 2 + sh;
+          const yn = Math.abs(Math.abs(dm) - 90) < 14 ? Y(dm - Math.sign(dm) * 16) : ym;
           ctx.save();
-          ctx.transform(0, 1, 1, 0, (xa + xb) / 2 + 14 * k, ym);
+          ctx.transform(0, 1, 1, 0, (xa + xb) / 2 + 14 * k, yn);
           ctx.font = `500 ${15 * k}px Consolas, monospace`;
           ctx.fillText(geo.names[i], 0, 0);
           ctx.restore();

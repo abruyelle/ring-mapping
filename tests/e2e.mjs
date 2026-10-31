@@ -343,6 +343,15 @@ try {
   await q.mouse.click(cx + 300, cy + 100);
   await q.waitForFunction(() => !document.querySelector('#detail h2').textContent.includes('·'));
   await q.click('[data-m3d="model"]');
+  await q.waitForTimeout(300);
+  await q.screenshot({ path: join(out, '6-numero-9h.png') });
+  // Orbite de l'autre cote pour lire le numero peint a 3 h.
+  await q.mouse.move(cx, cy);
+  await q.mouse.down();
+  await q.mouse.move(cx + 150, cy, { steps: 5 });
+  await q.mouse.up();
+  await q.waitForTimeout(300);
+  await q.screenshot({ path: join(out, '6-numero-3h.png') });
 
   await q.click('#v3dNext');
   await q.waitForFunction(() => document.querySelector('#v3dTitle').textContent.includes('101'));
