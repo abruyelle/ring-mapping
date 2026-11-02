@@ -5,6 +5,9 @@ const FT_PER_M = 3937 / 1200;
 
 export const toFt = (v, unit) => (unit === 'm' ? v * FT_PER_M : v);
 
+// Angle ramene dans [-180, 180[ : plus court chemin entre deux points de l'anneau.
+export const wrapDeg = (d) => mod(d + 180, 360) - 180;
+
 export function makeGeometry(p) {
   const circ = toFt(p.circumference, p.unit);
   const taper = (toFt(p.keyTaper, p.unit) / circ) * 360;
@@ -159,7 +162,7 @@ export function crackLength(pts, layout, circ) {
   let s = 0;
   for (let i = 1; i < pts.length; i++) {
     const dx = layout.ftOf(pts[i].r) - layout.ftOf(pts[i - 1].r);
-    const dy = ((pts[i].d - pts[i - 1].d) / 360) * circ;
+    const dy = (wrapDeg(pts[i].d - pts[i - 1].d) / 360) * circ;
     s += Math.hypot(dx, dy);
   }
   return s;

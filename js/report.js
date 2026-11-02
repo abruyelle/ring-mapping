@@ -55,9 +55,9 @@ function stripImage(t, fromRing, toRing) {
   ctx.fillStyle = LIGHT.fg;
   ctx.font = '500 12px Consolas, monospace';
   ctx.textAlign = 'left';
-  for (const [d, label] of [[-180, 'Invert 6h'], [-90, 'Spring 9h'], [0, 'Crown 12h'], [90, 'Spring 3h'], [180, 'Invert 6h']]) {
-    const y = top + ((d + 180) / 360) * H;
-    ctx.fillText(label, 2, d === -180 ? y + 12 : d === 180 ? y - 2 : y + 4);
+  for (const [d, label] of [[0, 'Crown 12h'], [90, 'Spring 3h'], [180, 'Invert 6h'], [270, 'Spring 9h'], [360, 'Crown 12h']]) {
+    const y = top + (d / 360) * H;
+    ctx.fillText(label, 2, d === 0 ? y + 12 : d === 360 ? y - 2 : y + 4);
   }
   drawStrip(ctx, {
     layout: t.layout, rings: t.rings, defects: t.defects, geo: t.geo, typeOf: t.typeOf,

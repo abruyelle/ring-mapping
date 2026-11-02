@@ -358,6 +358,8 @@ try {
   await q.click('#v3dClose');
   await q.waitForFunction(() => document.querySelector('#v3d').hidden);
   assert.ok(await q.locator('.side #detail').count());
+  await q.waitForTimeout(300);
+  await q.screenshot({ path: join(out, '8-carte-coupe.png') }); // zone de la crown visible en haut et en bas
   await q.click('#rows tr[data-id]:has-text("Infiltration") [data-act="delete"]');
   await rowCount(3, q);
   await q.click('#rows tr[data-id]:has-text("Infiltration") [data-act="delete"]');

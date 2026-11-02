@@ -1,4 +1,4 @@
-import { AxisPath, Layout, clock, crackLength, makeGeometry, toFt } from './geometry.js';
+import { AxisPath, Layout, clock, crackLength, makeGeometry, toFt, wrapDeg } from './geometry.js';
 import { LEGACY_STATUS, STATUS, TYPES } from './config.js';
 import { mergeRFR, parseRFR, stationFt } from './rfr.js';
 import { store } from './store.js';
@@ -11,7 +11,7 @@ import {
   FORMAT, TEMPLATE, normalizeProject, parseSegments, parseTunnels, parseTypes, segmentsText, tunnelsText, typesText,
 } from './project.js';
 
-const APP_VERSION = 'v13'; // garder en phase avec VERSION dans sw.js
+const APP_VERSION = 'v14'; // garder en phase avec VERSION dans sw.js
 const AXIS = 76;
 const TOP = 34;
 const MAP_H = 400;
@@ -139,9 +139,9 @@ function render() {
   ctx.font = '500 11px Consolas, monospace';
   ctx.textAlign = 'left';
   const [left, right] = prefs.lang === 'fr' ? ['Spring G', 'Spring D'] : ['Spring L', 'Spring R'];
-  const rows = [[-180, 'Invert', '6h'], [-90, left, '9h'], [0, 'Crown', '12h'], [90, right, '3h'], [180, 'Invert', '6h']];
+  const rows = [[0, 'Crown', '12h'], [90, right, '3h'], [180, 'Invert', '6h'], [270, left, '9h'], [360, 'Crown', '12h']];
   rows.forEach(([d, a, b], i) => {
-    const y = TOP + ((d + 180) / 360) * MAP_H + (i === 0 ? 12 : i === 4 ? -16 : 0);
+    const y = TOP + (d / 360) * MAP_H + (i === 0 ? 12 : i === 4 ? -16 : 0);
     ctx.fillStyle = colors.fg;
     ctx.fillText(a, 6, y);
     ctx.fillStyle = colors.muted;
@@ -154,7 +154,7 @@ function pos(e) {
   const ft = (e.clientX - b.left - AXIS + scroller.scrollLeft) / S.scale;
   return {
     r: T.layout.rOf(Math.max(0, Math.min(T.layout.length - 0.001, ft))),
-    d: Math.max(-180, Math.min(180, ((e.clientY - b.top - TOP) / MAP_H) * 360 - 180)),
+    d: wrapDeg(Math.max(0, Math.min(1, (e.clientY - b.top - TOP) / MAP_H)) * 360),
   };
 }
 
@@ -163,16 +163,18 @@ function pick(e) {
   const px = e.clientX - b.left;
   const py = e.clientY - b.top;
   const sx = (p) => AXIS + T.layout.ftOf(p.r) * S.scale - scroller.scrollLeft;
-  const sy = (p) => TOP + ((p.d + 180) / 360) * MAP_H;
   let best = null;
   let bestD = 14;
-  for (const f of T.defects) {
+  // Le defaut peut passer la coupe : ses points se suivent, et il se lit aussi un tour plus haut ou plus bas.
+  for (const f of T.defects) for (const turn of [0, -MAP_H, MAP_H]) {
+    const ys = [];
+    f.pts.forEach((p, i) => ys.push(i ? ys[i - 1] + (wrapDeg(p.d - f.pts[i - 1].d) / 360) * MAP_H : TOP + ((wrapDeg(p.d - 180) + 180) / 360) * MAP_H + turn));
     for (let i = 0; i < f.pts.length; i++) {
       const p = f.pts[i];
-      let dist = Math.hypot(sx(p) - px, sy(p) - py);
+      let dist = Math.hypot(sx(p) - px, ys[i] - py);
       const q = f.pts[i + 1];
       if (q) {
-        const [ax, ay, bx, by] = [sx(p), sy(p), sx(q), sy(q)];
+        const [ax, ay, bx, by] = [sx(p), ys[i], sx(q), ys[i + 1]];
         const l = (bx - ax) ** 2 + (by - ay) ** 2 || 1;
         const u = Math.max(0, Math.min(1, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / l));
         dist = Math.hypot(ax + u * (bx - ax) - px, ay + u * (by - ay) - py);
@@ -580,7 +582,7 @@ function paint3D(ctx, fromFt, toFt, w, h) {
   drawStrip(ctx, {
     layout: T.layout, rings: T.rings, defects: T.defects, geo: T.geo, typeOf: T.typeOf,
     fromFt, toFt, scale: w / (toFt - fromFt), x0: 0, top: 0, H: h, c: colors,
-    selRing: S.ringSel, selId: S.sel, k: 2, overlay: R3?.mode === 'ar',
+    selRing: S.ringSel, selId: S.sel, k: 2, overlay: R3?.mode === 'ar', cut: -180,
   });
 }
 
@@ -740,8 +742,8 @@ const draft3D = () => R3.setDraft(S.draft.map((p) => [T.layout.ftOf(p.r), p.d]))
 // Distance en pieds entre un toucher et chaque defaut, pour la selection en 3D.
 function pick3D(p) {
   const px = T.layout.ftOf(p.r);
-  const py = (p.d / 360) * T.geo.circ;
-  const xy = (q) => [T.layout.ftOf(q.r), (q.d / 360) * T.geo.circ];
+  const py = 0;
+  const xy = (q) => [T.layout.ftOf(q.r), (wrapDeg(q.d - p.d) / 360) * T.geo.circ];
   let best = null;
   let bestD = 1;
   for (const f of T.defects) {

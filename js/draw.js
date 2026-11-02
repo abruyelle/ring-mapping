@@ -1,4 +1,6 @@
 // Dessin du developpe sur un canvas : utilise a l'ecran et pour les bandes du rapport.
+import { wrapDeg } from './geometry.js';
+
 export const LIGHT = {
   bg: '#FFFFFF', fg: '#23282D', muted: '#5C656D', line: '#CDD2D6', accent: '#E8541E',
   seg: '#D7DBDE', segB: '#BEC5CA', segLine: '#7D868D', ghost: '#ECEEF0',
@@ -10,7 +12,8 @@ export function drawStrip(ctx, o) {
   const { layout, rings, defects, fromFt, toFt, scale, x0, top, H, c, geo, typeOf } = o;
   const k = o.k ?? 1; // agrandit traits et textes pour la texture 3D
   const X = (ft) => x0 + (ft - fromFt) * scale;
-  const Y = (d) => top + ((d + 180) / 360) * H;
+  const cut = o.cut ?? 0; // angle du bord haut : developpe coupe a la crown, texture 3D a l'invert
+  const Y = (d) => top + ((d - cut) / 360) * H;
   const a = layout.ringAtFt(Math.max(0, fromFt));
   const b = layout.ringAtFt(Math.min(layout.length, toFt));
   const pxRing = layout.maxWidth * scale;
@@ -35,7 +38,7 @@ export function drawStrip(ctx, o) {
       ctx.fillText(String(n), (xa + xb) / 2, top - 14);
     }
     const ring = rings.get(n);
-    if (ring) drawRing(ctx, geo, ring.key, xa, xb, Y, top, H, c, pxRing, k, o.overlay);
+    if (ring) drawRing(ctx, geo, ring.key, xa, xb, Y, top, H, c, pxRing, k, o.overlay, cut);
     else if (!o.overlay) {
       ctx.fillStyle = c.ghost;
       ctx.fillRect(xa, top, xb - xa, H);
@@ -51,7 +54,7 @@ export function drawStrip(ctx, o) {
   ctx.strokeStyle = c.fg;
   ctx.globalAlpha = 0.5;
   ctx.lineWidth = 1;
-  for (const d of [-90, 0, 90]) {
+  for (const d of [cut + 90, cut + 180, cut + 270]) {
     ctx.beginPath();
     ctx.moveTo(x0, Y(d));
     ctx.lineTo(X(toFt), Y(d));
@@ -90,9 +93,23 @@ export function drawStrip(ctx, o) {
     ctx.strokeRect(X(layout.start[o.selRing]), top, (layout.start[o.selRing + 1] - layout.start[o.selRing]) * scale, H);
   }
 
-  for (const f of defects) drawDefect(ctx, f, f.id === o.selId, layout, X, Y, c, k);
-  if (o.draft?.length > 1) drawCrack(ctx, o.draft, 2, c.crack, layout, X, Y);
+  // Un defaut a cheval sur la coupe apparait des deux cotes de la carte.
+  ctx.beginPath();
+  ctx.rect(x0, top, X(toFt) - x0, H);
+  ctx.clip();
+  for (const turn of [0, -360, 360]) {
+    const Yt = (d) => Y(d + turn);
+    for (const f of defects) drawDefect(ctx, f, f.id === o.selId, layout, X, Yt, c, k, cut);
+    if (o.draft?.length > 1) drawCrack(ctx, o.draft, 2, c.crack, layout, X, Yt, cut);
+  }
   ctx.restore();
+}
+
+// Angles d'un trace, continus d'un point a l'autre a partir de la zone visible.
+function unroll(pts, cut) {
+  const out = [];
+  pts.forEach((p, i) => out.push(i ? out[i - 1] + wrapDeg(p.d - pts[i - 1].d) : cut + 180 + wrapDeg(p.d - cut - 180)));
+  return out;
 }
 
 function poly(ctx, pts) {
@@ -101,7 +118,7 @@ function poly(ctx, pts) {
   ctx.closePath();
 }
 
-function drawRing(ctx, geo, key, xa, xb, Y, top, H, c, pxRing, k, overlay) {
+function drawRing(ctx, geo, key, xa, xb, Y, top, H, c, pxRing, k, overlay, cut) {
   const b = geo.bounds(key);
   const O = geo.offsets;
   const n = geo.n;
@@ -115,7 +132,7 @@ function drawRing(ctx, geo, key, xa, xb, Y, top, H, c, pxRing, k, overlay) {
     for (const sh of [0, -360, 360]) {
       const lo = Math.min(b[i], b[i + 1]) - geo.taper + sh;
       const hi = Math.max(b[i], b[i + 1]) + geo.taper + sh;
-      if (lo >= 180 || hi <= -180) continue;
+      if (lo >= cut + 360 || hi <= cut) continue;
       poly(ctx, [
         [xa, Y(b[i] + O[i] + sh)], [xb, Y(b[i] - O[i] + sh)],
         [xb, Y(b[i + 1] - O[i + 1] + sh)], [xa, Y(b[i + 1] + O[i + 1] + sh)],
@@ -162,7 +179,8 @@ function drawRing(ctx, geo, key, xa, xb, Y, top, H, c, pxRing, k, overlay) {
   ctx.restore();
 }
 
-function drawCrack(ctx, pts, width, color, layout, X, Y) {
+function drawCrack(ctx, pts, width, color, layout, X, Y, cut) {
+  const ds = unroll(pts, cut);
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
   ctx.lineCap = 'round';
@@ -170,16 +188,17 @@ function drawCrack(ctx, pts, width, color, layout, X, Y) {
   ctx.beginPath();
   pts.forEach((p, i) => {
     const x = X(layout.ftOf(p.r));
-    const y = Y(p.d);
+    const y = Y(ds[i]);
     if (i) ctx.lineTo(x, y);
     else ctx.moveTo(x, y);
   });
   ctx.stroke();
 }
 
-function drawDefect(ctx, f, selected, layout, X, Y, c, k) {
+function drawDefect(ctx, f, selected, layout, X, Y, c, k, cut) {
+  const ds = unroll(f.pts, cut);
   if (f.type === 'zone') {
-    poly(ctx, f.pts.map((p) => [X(layout.ftOf(p.r)), Y(p.d)]));
+    poly(ctx, f.pts.map((p, i) => [X(layout.ftOf(p.r)), Y(ds[i])]));
     ctx.fillStyle = c.zone;
     ctx.globalAlpha = selected ? 0.45 : 0.28;
     ctx.fill();
@@ -192,14 +211,14 @@ function drawDefect(ctx, f, selected, layout, X, Y, c, k) {
   if (f.type === 'crack') {
     if (selected) {
       ctx.globalAlpha = 0.3;
-      drawCrack(ctx, f.pts, 8 * k, c.fg, layout, X, Y);
+      drawCrack(ctx, f.pts, 8 * k, c.fg, layout, X, Y, cut);
       ctx.globalAlpha = 1;
     }
-    drawCrack(ctx, f.pts, (1 + f.g * 0.7) * k, c.crack, layout, X, Y);
+    drawCrack(ctx, f.pts, (1 + f.g * 0.7) * k, c.crack, layout, X, Y, cut);
     return;
   }
   const x = X(layout.ftOf(f.pts[0].r));
-  const y = Y(f.pts[0].d);
+  const y = Y(ds[0]);
   const s = (4 + f.g * 1.5) * k;
   if (selected) {
     ctx.strokeStyle = c.fg;

@@ -46,6 +46,13 @@ test('segment sous un point, joint biseaute et passage de -180 a 180 compris', (
   assert.deepEqual([0, 60, 120, 180, -120, -60].map((d) => geo.names[geo.segIndex(12, d)]), ['K', 'D', 'E', 'A', 'B', 'C']);
 });
 
+test('longueur d une fissure qui passe par l invert', () => {
+  const layout = { ftOf: () => 0 };
+  const circ = 360;
+  assert.equal(crackLength([{ r: 1, d: 175 }, { r: 1, d: -175 }], layout, circ), 10);
+  assert.equal(crackLength([{ r: 1, d: -5 }, { r: 1, d: 5 }], layout, circ), 10);
+});
+
 test('projet en metres converti en interne', () => {
   const p = normalizeProject({ ...fixture, id: 'y', unit: 'm', circumference: 20, ringTypes: { L: { material: 'concrete', width: 1.5 }, M: { material: 'fiber', width: 1.2 } } });
   assert.ok(Math.abs(makeGeometry(p).circ - 65.617) < 0.001);
