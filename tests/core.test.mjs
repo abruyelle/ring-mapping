@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { AxisPath, Layout, clock, crackLength, fmtLen, fmtStation, makeGeometry, toFt } from '../js/geometry.js';
 import { mergeRFR, parseRFR, stationFt } from '../js/rfr.js';
 import {
-  TEMPLATE, normalizeProject, parseSegments, parseTunnels, parseTypes, segmentsText, tunnelsText, typesText,
+  TEMPLATE, cleanImport, normalizeProject, parseSegments, parseTunnels, parseTypes, segmentsText, tunnelsText, typesText,
 } from '../js/project.js';
 
 const fixture = normalizeProject(JSON.parse(readFileSync(new URL('./fixture.project.json', import.meta.url), 'utf8')));
@@ -51,6 +51,34 @@ test('longueur d une fissure qui passe par l invert', () => {
   const circ = 360;
   assert.equal(crackLength([{ r: 1, d: 175 }, { r: 1, d: -175 }], layout, circ), 10);
   assert.equal(crackLength([{ r: 1, d: -5 }, { r: 1, d: 5 }], layout, circ), 10);
+});
+
+test('fichier d echange : seules les fiches conformes passent', () => {
+  const project = normalizeProject(fixture);
+  const tunnel = `${project.id}/${project.tunnels[0].id}`;
+  const at = '2026-01-01T00:00:00.000Z';
+  const ring = { tunnel, n: 1, key: 3, source: 'rfr', date: '', updatedAt: at };
+  const defect = { id: 'a-1', tunnel, type: 'leak', g: 2, stat: 'open', pts: [{ r: 1.5, d: -170 }], updatedAt: at };
+  const photo = { id: 'p-1', defect: 'a-1', tunnel, data: 'data:image/jpeg;base64,AAAA', createdAt: at, updatedAt: at };
+  const out = cleanImport({
+    rings: [ring, { ...ring, n: 3, source: 'saisie', opt: null, pm: null }, { ...ring, n: 2, key: '<img>' }, { ...ring, n: 1e9 }],
+    defects: [
+      defect, { ...defect, deleted: true, id: 'a-2' }, { ...defect, g: '1"><img>' }, { ...defect, type: '__proto__' },
+      { ...defect, pts: [] }, { ...defect, tunnel: 'autre/T1' },
+    ],
+    photos: [photo, { ...photo, id: 'p-2', data: '', deleted: true }, { ...photo, data: 'x" onerror="y' }, { ...photo, data: 'data:text/html;base64,AAAA' }],
+    meta: [{ k: `offset-${tunnel}`, v: 12.5 }, { k: 'lang', v: 'xx' }, { k: 'projects', v: [] }],
+  }, project);
+  assert.deepEqual(out.rings.map((r) => r.n), [1, 3]);
+  assert.deepEqual(out.defects.map((f) => f.id), ['a-1', 'a-2']);
+  assert.deepEqual(out.photos.map((p) => p.id), ['p-1', 'p-2']);
+  assert.deepEqual(out.meta.map((m) => m.k), [`offset-${tunnel}`]);
+  assert.equal(out.rejected, 2 + 4 + 2 + 2);
+  assert.throws(() => cleanImport({ rings: 'x', defects: [] }, project), /err.notData/);
+});
+
+test('trace du fichier projet refuse s il n est pas numerique', () => {
+  assert.throws(() => normalizeProject({ ...fixture, axis: { points: [[0, 0, 0], ['x', 1, 2]] } }), /err.number/);
 });
 
 test('projet en metres converti en interne', () => {

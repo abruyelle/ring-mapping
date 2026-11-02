@@ -1,5 +1,7 @@
 // Description d'un projet : tout ce qui change d'un chantier a l'autre tient dans ce fichier.
 // Les longueurs sont dans l'unite du projet (ft ou m). Les chainages RFR sont toujours en metres.
+import { LEGACY_STATUS, STATUS, TYPES } from './config.js';
+
 export const FORMAT = 'ring-mapping-project';
 
 export const TEMPLATE = {
@@ -60,8 +62,45 @@ export function normalizeProject(raw) {
     format: FORMAT, version: 1, id: raw.id ? String(raw.id) : slug(name), name, unit: raw.unit,
     circumference, keyTaper, keyPositions, segments, ringTypes, tunnels,
     rfr: { ...TEMPLATE.rfr, ...raw.rfr },
-    ...(raw.axis?.points?.length > 1 ? { axis: raw.axis } : {}),
+    ...(raw.axis?.points?.length > 1 ? { axis: cleanAxis(raw.axis) } : {}),
   };
+}
+
+function cleanAxis(a) {
+  const ok = Array.isArray(a.points) && a.points.every((p) => Array.isArray(p) && p.length >= 3 && p.every(Number.isFinite));
+  const opt = (v) => v === undefined || Number.isFinite(v);
+  if (!ok || !opt(a.height) || !opt(a.coordScale)) throw new Error('err.number');
+  return a;
+}
+
+const isText = (v) => v === undefined || v === null || typeof v === 'string';
+const isDate = (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v));
+const isId = (v) => typeof v === 'string' && /^[\w-]{1,64}$/.test(v);
+const isNum = (v) => v === undefined || v === null || Number.isFinite(v);
+const IMAGE = /^data:image\/(jpeg|png);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+// Fichier d'echange : tout vient de l'exterieur. Ne passent que les fiches conformes a ce projet.
+export function cleanImport(data, project) {
+  if (![data.rings, data.defects, data.photos ?? [], data.meta ?? []].every(Array.isArray)) throw new Error('err.notData');
+  const totals = new Map(project.tunnels.map((t) => [`${project.id}/${t.id}`, t.total]));
+  const inRange = (tunnel, n) => n >= 1 && n <= totals.get(tunnel);
+  const rings = data.rings.filter((r) => Number.isInteger(r?.n) && inRange(r.tunnel, r.n)
+    && Number.isInteger(r.key) && r.key >= 1 && r.key <= project.keyPositions
+    && isNum(r.opt) && isNum(r.pm) && (r.ce === undefined || (Array.isArray(r.ce) && r.ce.length === 3 && r.ce.every(Number.isFinite)))
+    && isText(r.source) && isText(r.date) && isText(r.by) && isDate(r.updatedAt));
+  const defects = data.defects.filter((f) => isId(f?.id) && totals.has(f.tunnel) && Object.hasOwn(TYPES, f.type)
+    && [1, 2, 3].includes(f.g) && (STATUS.includes(f.stat) || Object.hasOwn(LEGACY_STATUS, f.stat))
+    && Array.isArray(f.pts) && f.pts.length > 0
+    && f.pts.every((p) => Number.isFinite(p?.r) && Number.isFinite(p.d) && inRange(f.tunnel, Math.floor(p.r)))
+    && isText(f.date) && isText(f.by) && isText(f.note) && isNum(f.photos) && isDate(f.updatedAt));
+  const photos = (data.photos ?? []).filter((p) => isId(p?.id) && isId(p.defect) && totals.has(p.tunnel)
+    && typeof p.data === 'string' && (IMAGE.test(p.data) || (p.deleted === true && p.data === ''))
+    && isText(p.by) && isDate(p.createdAt) && isDate(p.updatedAt));
+  const meta = (data.meta ?? []).filter((m) => typeof m?.k === 'string' && m.k.startsWith('offset-')
+    && totals.has(m.k.slice('offset-'.length)) && isNum(m.v));
+  const rejected = data.rings.length + data.defects.length + (data.photos?.length ?? 0) + (data.meta?.length ?? 0)
+    - rings.length - defects.length - photos.length - meta.length;
+  return { rings, defects, photos, meta, rejected };
 }
 
 // Champs texte de l'ecran Projet.

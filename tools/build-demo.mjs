@@ -29,6 +29,7 @@ const rings = mergeRFR([], parsed, key, '2026-10-30T00:00:00Z').rings;
 
 const banner = `<div class="demo">Démonstration : anneaux réels, défauts fictifs, rien n'est enregistré. Demo: real rings, sample defects, nothing is saved.</div>`;
 const html = read('index.html')
+  .replace(/<meta http-equiv="Content-Security-Policy"[^>]*>\r?\n/, '') // la demo est tout en ligne
   .replace(/<link rel="(manifest|icon|apple-touch-icon)"[^>]*>\r?\n/g, '')
   .replace('<link rel="stylesheet" href="styles.css">', () => `<style>${read('styles.css')}\n.demo{background:#FFF1E8;border:1px solid var(--accent);border-radius:4px;padding:7px 12px;font-weight:600}</style>`)
   .replace('<script src="lib/xlsx.mini.min.js" defer></script>', () => `<script src="data:text/javascript;base64,${readFileSync(join(root, 'lib/xlsx.mini.min.js')).toString('base64')}"></script>`)

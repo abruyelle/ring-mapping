@@ -1,5 +1,5 @@
 // Garde l'app disponible hors ligne en tunnel. Incrementer VERSION a chaque livraison.
-const VERSION = 'ring-mapping-14'; // garder en phase avec APP_VERSION dans js/app.js
+const VERSION = 'ring-mapping-15'; // garder en phase avec APP_VERSION dans js/app.js
 const FILES = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png',
   'lib/xlsx.mini.min.js', 'lib/three.module.min.js', 'js/app.js', 'js/config.js', 'js/draw.js', 'js/geometry.js',

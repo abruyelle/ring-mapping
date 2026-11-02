@@ -8,10 +8,10 @@ import { buildReport, defectRow, exportExcel, ringSpan, sortDefects } from './re
 import { Ring3D, Tunnel3D } from './view3d.js';
 import { compressImage } from './photos.js';
 import {
-  FORMAT, TEMPLATE, normalizeProject, parseSegments, parseTunnels, parseTypes, segmentsText, tunnelsText, typesText,
+  FORMAT, TEMPLATE, cleanImport, normalizeProject, parseSegments, parseTunnels, parseTypes, segmentsText, tunnelsText, typesText,
 } from './project.js';
 
-const APP_VERSION = 'v14'; // garder en phase avec VERSION dans sw.js
+const APP_VERSION = 'v15'; // garder en phase avec VERSION dans sw.js
 const AXIS = 76;
 const TOP = 34;
 const MAP_H = 400;
@@ -310,7 +310,7 @@ function ringDetail(r) {
   return `<h2>${tr('d.ring')} ${r.n}</h2>
     <dl class="kv"><dt>${tr('col.station')}</dt><dd>${T.station(r.n)}</dd>
     <dt>${tr('col.type')}</dt><dd>${esc(label)}, ${tr('mat.' + T.typeOf(label).material)}, ${lenText(T.layout.width(r.n))}</dd>
-    <dt>${tr('d.keySet')}</dt><dd>K${r.key}</dd>${r.opt && r.opt !== r.key ? `<dt>${tr('d.keyOpt')}</dt><dd>K${r.opt}</dd>` : ''}
+    <dt>${tr('d.keySet')}</dt><dd>K${esc(r.key)}</dd>${r.opt && r.opt !== r.key ? `<dt>${tr('d.keyOpt')}</dt><dd>K${esc(r.opt)}</dd>` : ''}
     <dt>${tr('d.laid')}</dt><dd>${esc(r.date) || '–'}</dd><dt>${tr('d.source')}</dt><dd>${tr(r.source === 'rfr' ? 'src.rfr' : 'src.manual')}</dd>
     <dt>${tr('d.defects')}</dt><dd>${n}</dd></dl>
     ${S.v3d ? '' : `<button class="btn primary" id="d3d" type="button">${tr('d.view3d')}</button>`}
@@ -328,7 +328,7 @@ function segDetail(r, i) {
   const list = segDefects(r.n, i);
   return `<h2>${tr('d.ring')} ${r.n} · ${esc(T.geo.names[i])}</h2>
     <dl class="kv"><dt>${tr('col.segment')}</dt><dd>${esc(T.geo.names[i])}</dd><dt>${tr('col.position')}</dt><dd>${clock((b[i] + b[i + 1]) / 2)}</dd>
-    <dt>${tr('col.station')}</dt><dd>${T.station(r.n)}</dd><dt>${tr('d.keySet')}</dt><dd>K${r.key}</dd>
+    <dt>${tr('col.station')}</dt><dd>${T.station(r.n)}</dd><dt>${tr('d.keySet')}</dt><dd>K${esc(r.key)}</dd>
     <dt>${tr('d.defects')}</dt><dd>${list.length}</dd></dl>
     <div class="switch">${list.map((f) => `<button class="btn" type="button" data-def="${esc(f.id)}">${esc(tr('tool.' + f.type))}</button>`).join('')}</div>
     <p class="empty">${tr('d.segHint')}</p>`;
@@ -431,7 +431,7 @@ function table() {
     const c = (key, html) => `<td data-label="${esc(tr('col.' + key))}">${html}</td>`;
     return `<tr data-id="${esc(f.id)}" class="${f.id === S.sel ? 'on' : ''}">${c('ring', r.rings)}${c('station', r.station)}${c('segment', esc(r.segment))}${c('position', r.position)}
       ${c('type', `<i class="dot" style="background:var(--${f.type})"></i>${esc(r.type)}`)}
-      ${c('severity', `<span class="pill g${f.g}">${esc(r.severity)}</span>`)}${c('length', r.lengthText ?? '–')}${c('status', esc(r.status))}${c('photos', r.photos || '–')}${c('date', esc(r.date))}${c('by', esc(r.by))}${c('note', esc(r.note))}
+      ${c('severity', `<span class="pill g${esc(f.g)}">${esc(r.severity)}</span>`)}${c('length', r.lengthText ?? '–')}${c('status', esc(r.status))}${c('photos', r.photos || '–')}${c('date', esc(r.date))}${c('by', esc(r.by))}${c('note', esc(r.note))}
       <td class="acts"><button class="btn mini" type="button" data-act="edit">${tr('act.edit')}</button><button class="btn mini danger" type="button" data-act="delete">${tr('act.delete')}</button></td></tr>`;
   }).join('') || `<tr><td colspan="13" class="empty">${tr('reg.empty')}</td></tr>`;
 }
@@ -528,7 +528,7 @@ async function showThumbs(f) {
   const photos = await store.photosOf(f.id);
   const box = $('dThumbs');
   if (!box || S.sel !== f.id) return;
-  box.innerHTML = photos.map((p) => `<figure><img alt="" src="${p.data}" data-open="${esc(p.id)}"><button class="btn mini danger" type="button" data-del="${esc(p.id)}" aria-label="${tr('act.delete')}">×</button></figure>`).join('');
+  box.innerHTML = photos.map((p) => `<figure><img alt="" src="${esc(p.data)}" data-open="${esc(p.id)}"><button class="btn mini danger" type="button" data-del="${esc(p.id)}" aria-label="${tr('act.delete')}">×</button></figure>`).join('');
   box.onclick = async (e) => {
     const shown = photos.find((p) => p.id === e.target.dataset.open);
     if (shown) {
@@ -1134,9 +1134,10 @@ $('restore').addEventListener('change', async (e) => {
     const data = JSON.parse(await file.text());
     if (data?.app !== 'ring-mapping' || !data.project) throw new Error('err.notData');
     const project = normalizeProject(data.project);
-    const n = await store.importData(data);
+    const clean = cleanImport(data, project);
+    const n = await store.importData(clean);
     await addProject(PROJECTS.find((p) => p.id === project.id) ?? project);
-    say(tr('msg.restored', { r: n.rings, d: n.defects }));
+    say(tr('msg.restored', { r: n.rings, d: n.defects }) + (clean.rejected ? ` ${tr('msg.rejected', { n: clean.rejected })}` : ''));
   } catch (err) {
     say(err instanceof SyntaxError ? tr('err.notData') : message(err));
   }

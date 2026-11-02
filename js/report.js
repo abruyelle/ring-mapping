@@ -94,7 +94,7 @@ export async function buildReport(root, t, author) {
     const r = defectRow(f, t);
     cards += `<article class="r-card"><h3>${esc(r.type)} · ${tr('col.ring')} ${r.rings} · ${esc(r.segment)} · ${r.position} · ${esc(r.severity)}</h3>
       <p>${esc(r.station)} · ${esc(r.status)} · ${esc(r.date)}${r.by ? ' · ' + esc(r.by) : ''}${r.note ? ' · ' + esc(r.note) : ''}</p>
-      <div class="r-photos">${photos.map((p) => `<img alt="" src="${p.data}">`).join('')}</div></article>`;
+      <div class="r-photos">${photos.map((p) => `<img alt="" src="${esc(p.data)}">`).join('')}</div></article>`;
   }
   if (cards) html += `<h2 class="r-sec">${tr('r.photos')}</h2>${cards}`;
   root.innerHTML = html;
